@@ -1,15 +1,15 @@
-struct Cell: Hashable {
+nonisolated struct Cell: Hashable {
     var x: Int
     var y: Int
 }
 
-struct TickResult {
+nonisolated struct TickResult {
     var births: [Cell]
     var deaths: [Cell]
 }
 
 /// A B3/S23 Life board. Cells beyond the edges are dead (no wrapping).
-final class LifeEngine {
+nonisolated final class LifeEngine {
     let width: Int
     let height: Int
     private var cells: [UInt8]

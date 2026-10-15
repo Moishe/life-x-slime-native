@@ -1,4 +1,4 @@
-struct SpawnSettings {
+nonisolated struct SpawnSettings {
     var actorsPerBirth: Int
     var cellSize: Float
     var minSpeed: Float
@@ -8,7 +8,7 @@ struct SpawnSettings {
 /// Turns Life births into Physarum actors placed randomly inside each newborn
 /// cell's block. Returns at most `maxActors`; when there are more, the newest
 /// births win (older ones would be evicted from the ring anyway).
-func birthsToActors(_ births: [ColoredCell], _ settings: SpawnSettings, rng: Rng, maxActors: Int) -> [Actor] {
+nonisolated func birthsToActors(_ births: [ColoredCell], _ settings: SpawnSettings, rng: Rng, maxActors: Int) -> [Actor] {
     guard settings.actorsPerBirth > 0, maxActors > 0 else { return [] }
     let keep = (maxActors + settings.actorsPerBirth - 1) / settings.actorsPerBirth
     var actors: [Actor] = []
@@ -35,13 +35,13 @@ func birthsToActors(_ births: [ColoredCell], _ settings: SpawnSettings, rng: Rng
     return Array(actors.suffix(maxActors))
 }
 
-func deathsToFoodSeeds(_ deaths: [ColoredCell]) -> [FoodSeed] {
+nonisolated func deathsToFoodSeeds(_ deaths: [ColoredCell]) -> [FoodSeed] {
     deaths.map { d in
         FoodSeed(color: SIMD4(palette[d.paletteIndex], 1), cell: SIMD2(UInt32(d.x), UInt32(d.y)), pad: .zero)
     }
 }
 
-enum SpawnMode: String, CaseIterable, Identifiable {
+nonisolated enum SpawnMode: String, CaseIterable, Identifiable {
     case burst, trickle
 
     var id: Self { self }
@@ -49,7 +49,7 @@ enum SpawnMode: String, CaseIterable, Identifiable {
 
 /// Queues spawned actors between Life ticks and hands them to Physarum steps,
 /// either all at once (burst) or spread evenly until the next tick (trickle).
-final class SpawnScheduler {
+nonisolated final class SpawnScheduler {
     var mode: SpawnMode = .burst
     var maxQueued: Int
     // The queue is queue[head...]; taken actors are dropped from the front lazily.

@@ -180,6 +180,7 @@ final class PhysarumSim {
     }
 
     /// Reads the counters after every submitted step has finished. Blocks; for tests.
+    @discardableResult
     func readCounters() -> CounterValues {
         context.waitUntilIdle()
         return counters.contents().load(as: Counters.self).values

@@ -1,10 +1,10 @@
 // Palette hues: 8 fully saturated, full-value colors 45° apart.
-let paletteHuesDegrees: [Float] = [0, 45, 90, 135, 180, 225, 270, 315]
-let palette: [SIMD3<Float>] = paletteHuesDegrees.map { hsv2rgb(SIMD3($0 / 360, 1, 1)) }
+nonisolated let paletteHuesDegrees: [Float] = [0, 45, 90, 135, 180, 225, 270, 315]
+nonisolated let palette: [SIMD3<Float>] = paletteHuesDegrees.map { hsv2rgb(SIMD3($0 / 360, 1, 1)) }
 
 /// Remembers which palette color each tracked organism wears. A color lasts as
 /// long as the organism's id: splits give new ids (new colors), merges keep one.
-final class OrganismPalette {
+nonisolated final class OrganismPalette {
     private var colors: [Int: Int] = [:]
     private let rng: Rng
 
@@ -22,13 +22,13 @@ final class OrganismPalette {
     }
 }
 
-struct ColoredCell: Equatable {
+nonisolated struct ColoredCell: Equatable {
     var x: Int
     var y: Int
     var paletteIndex: Int
 }
 
-struct WorldTick {
+nonisolated struct WorldTick {
     var births: [ColoredCell]
     var deaths: [ColoredCell]
     var events: ClusterEvents
@@ -37,7 +37,7 @@ struct WorldTick {
 /// The Life board plus organism tracking and coloring. This is the single
 /// place other modules (rendering, the Physarum bridge, future MIDI) read
 /// organism state from.
-final class LifeWorld {
+nonisolated final class LifeWorld {
     let width: Int
     let height: Int
     let engine: LifeEngine

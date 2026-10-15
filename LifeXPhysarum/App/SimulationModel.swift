@@ -47,15 +47,17 @@ final class SimulationModel {
 
     @ObservationIgnored private let context: MetalContext
     @ObservationIgnored let compositor: Compositor
-    @ObservationIgnored private(set) var world: LifeWorld
+    @ObservationIgnored private var life: LifeRunner!
     @ObservationIgnored private let sim: PhysarumSim
     @ObservationIgnored private let scheduler: SpawnScheduler
-    @ObservationIgnored private let random: ReseedableRng
     @ObservationIgnored private var lifeClock = FixedStepClock(hz: 1, maxStepsPerAdvance: 1)
     @ObservationIgnored private var physClock = FixedStepClock(hz: physarumHz, maxStepsPerAdvance: 4)
     @ObservationIgnored private var recordingLifeTicker = StepTicker()
     @ObservationIgnored private var pendingSeeds: [FoodSeed] = []
-    @ObservationIgnored private var lifeDirty = true
+    // Which Life board updates belong to, and the newest board image shown.
+    @ObservationIgnored private var lifeEpoch = 0
+    @ObservationIgnored private var lastLifeSequence = 0
+    @ObservationIgnored private var organismCount = 0
     @ObservationIgnored private var hover: Cell?
     @ObservationIgnored private var recorder: MovieRecorder?
 
@@ -74,15 +76,15 @@ final class SimulationModel {
         let poolSizes = supportedPoolSizes(maxBufferLength: context.device.maxBufferLength)
         var initial = AppSettings()
         if !poolSizes.contains(initial.poolSize), let largest = poolSizes.last { initial.poolSize = largest }
-        let random = ReseedableRng(seed: PhysarumParams().rngSeed)
         self.poolSizes = poolSizes
-        self.random = random
         compositor = Compositor(context: context, gridSize: initial.lifeSize)
         sim = PhysarumSim(context: context, width: fieldSize, height: fieldSize,
                           poolSize: initial.poolSize, cellSize: cellSize(forLifeSize: initial.lifeSize))
         scheduler = SpawnScheduler(maxQueued: initial.poolSize)
-        world = LifeWorld(width: initial.lifeSize, height: initial.lifeSize, rng: random.next)
         settings = initial
+        life = LifeRunner(size: initial.lifeSize, seed: params.rngSeed) { [weak self] update in
+            self?.apply(update)
+        }
 
         readoutTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateReadouts() }
@@ -99,7 +101,6 @@ final class SimulationModel {
     /// Advances the simulations by `dtMs` of wall-clock time.
     func advance(dtMs: Double) {
         if recorder != nil { recordingFrame(dtMs) } else { liveFrame(dtMs) }
-        refreshLifeTexture()
         frames.add()
     }
 
@@ -122,9 +123,10 @@ final class SimulationModel {
         var steps = physClock.advance(dtMs)
         while steps > 0 && !recorder.isBusy {
             steps -= 1
-            if settings.playing && recordingLifeTicker.step(stepsPerTick: stepsPerLifeTick) { lifeTick() }
+            if settings.playing && recordingLifeTicker.step(stepsPerTick: stepsPerLifeTick) {
+                apply(life.tickNow(spawn: spawnSettings, maxActors: settings.poolSize))
+            }
             physStep()
-            refreshLifeTexture()
             do {
                 try recorder.addFrame { commandBuffer, target in
                     compositor.encode(into: commandBuffer, target: target, field: sim.trail,
@@ -141,17 +143,29 @@ final class SimulationModel {
 
     private var stepsPerLifeTick: Int { max(1, Int((physarumHz / settings.lifeHz).rounded())) }
 
-    /// One Life generation; queues its spawns and food for the next Physarum steps.
+    /// One Life generation. It runs on Life's queue; its spawns and food are
+    /// queued for the Physarum steps after it arrives.
     func lifeTick() {
-        let result = world.tick()
-        let actors = birthsToActors(
-            result.births,
-            SpawnSettings(actorsPerBirth: settings.actorsPerBirth, cellSize: Float(cellSize(forLifeSize: settings.lifeSize)),
-                          minSpeed: Float(params.minSpeed), life: UInt32(clamping: params.life)),
-            rng: random.next, maxActors: settings.poolSize)
-        scheduler.enqueue(actors, stepsUntilNextTick: stepsPerLifeTick)
-        pendingSeeds.append(contentsOf: deathsToFoodSeeds(result.deaths))
-        lifeDirty = true
+        life.tick(spawn: spawnSettings, maxActors: settings.poolSize)
+    }
+
+    private var spawnSettings: SpawnSettings {
+        SpawnSettings(actorsPerBirth: settings.actorsPerBirth, cellSize: Float(cellSize(forLifeSize: settings.lifeSize)),
+                      minSpeed: Float(params.minSpeed), life: UInt32(clamping: params.life))
+    }
+
+    /// Takes in a change to the Life board: its new image, and a tick's spawns and food.
+    private func apply(_ update: LifeRunner.Update) {
+        guard update.epoch == lifeEpoch, update.gridSize == compositor.gridSize else { return }
+        if update.isTick {
+            scheduler.enqueue(update.actors, stepsUntilNextTick: stepsPerLifeTick)
+            pendingSeeds.append(contentsOf: update.seeds)
+        }
+        guard update.sequence > lastLifeSequence else { return }
+        lastLifeSequence = update.sequence
+        compositor.setLife(update.texels)
+        organismCount = update.organismCount
+        readouts.organisms = organismCount
     }
 
     private func physStep() {
@@ -174,22 +188,15 @@ final class SimulationModel {
                           physarumOpacity: settings.physarumOpacity, lifeOpacity: settings.lifeOpacity, ghostOpacity: 1)
     }
 
-    private func refreshLifeTexture() {
-        guard lifeDirty else { return }
-        compositor.setLife(lifeTexels(world.liveCells(), gridSize: settings.lifeSize))
-        lifeDirty = false
-    }
-
     // MARK: Editing
 
     func togglePlaying() {
         settings.playing.toggle()
     }
 
-    func editWorld(_ edit: (LifeWorld) -> Void) {
-        edit(world)
-        lifeDirty = true
-        refreshReadoutsSoon()
+    /// Changes the Life board (on Life's queue, after any tick in progress).
+    func editWorld(_ edit: @escaping @Sendable (LifeWorld) -> Void) {
+        life.edit(edit)
     }
 
     func clearBoard() { editWorld { $0.clear() } }
@@ -201,7 +208,6 @@ final class SimulationModel {
 
     func step() {
         lifeTick()
-        refreshReadoutsSoon()
     }
 
     func rotate() {
@@ -219,14 +225,13 @@ final class SimulationModel {
             editWorld { $0.place(pattern, x: cell.x, y: cell.y, quarterTurns: turns) }
             return nil
         case .paint:
-            editWorld { $0.toggle(cell.x, cell.y) }
-            return world.engine.get(cell.x, cell.y)
+            return life.toggle(cell)
         }
     }
 
     /// Paints `cell` to `alive` while dragging in paint mode.
     func paint(_ cell: Cell, alive: Bool) {
-        guard case .paint = tool, world.engine.get(cell.x, cell.y) != alive else { return }
+        guard case .paint = tool else { return }
         editWorld { $0.setCell(cell.x, cell.y, alive: alive) }
     }
 
@@ -246,14 +251,14 @@ final class SimulationModel {
     /// Starts an empty board at the new size. The food map and pending food are
     /// cleared because they are laid out in the old cell blocks; actors and trail stay.
     func setLifeSize(_ lifeSize: Int) {
-        guard lifeSize != world.width else { return }
+        guard lifeSize != compositor.gridSize else { return }
         settings.lifeSize = lifeSize
-        world = LifeWorld(width: lifeSize, height: lifeSize, rng: random.next)
+        lifeEpoch += 1
+        life.resize(lifeSize)
         sim.setCellSize(cellSize(forLifeSize: lifeSize))
         pendingSeeds = []
         compositor.setGridSize(lifeSize)
         hover = nil
-        lifeDirty = true
     }
 
     func setPoolSize(_ poolSize: Int) {
@@ -276,7 +281,7 @@ final class SimulationModel {
     /// Restarts the seeded RNG (palette choices, random fill, spawned actors' RNG states).
     func reseed(_ seed: Int) {
         params.rngSeed = seed
-        random.reseed(seed)
+        life.reseed(seed)
     }
 
     func resetPhysarumParameters() {
@@ -325,7 +330,6 @@ final class SimulationModel {
     /// Saves the Life layer, the Physarum trail and their mix as PNGs named
     /// `<base>-life.png` etc. next to `baseURL`.
     func exportImages(to baseURL: URL) async {
-        refreshLifeTexture()
         let images = await compositor.capture(
             field: sim.trail,
             layers: [(0, 1), (1, 0), (settings.physarumOpacity, settings.lifeOpacity)],
@@ -393,13 +397,8 @@ final class SimulationModel {
             fps: frames.sample(nowMs: now),
             physStepsPerSec: physSteps.sample(nowMs: now),
             alive: Int(counters.aliveCount),
-            organisms: world.organismCount,
+            organisms: organismCount,
             lifeInsertsPerSec: lifeInserts.sample(nowMs: now),
             childInsertsPerSec: childInserts.sample(nowMs: now))
-    }
-
-    /// Edits change the organism count right away; don't wait for the timer.
-    private func refreshReadoutsSoon() {
-        readouts.organisms = world.organismCount
     }
 }

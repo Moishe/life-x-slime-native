@@ -1,6 +1,6 @@
 // The pattern library, ported from life-ambient's engine/patterns.ts.
 
-enum PatternCategory: String, CaseIterable, Identifiable {
+nonisolated enum PatternCategory: String, CaseIterable, Identifiable {
     case drone, pulse, voyager, fountain, wildcard
 
     var id: Self { self }
@@ -26,7 +26,7 @@ enum PatternCategory: String, CaseIterable, Identifiable {
     }
 }
 
-struct Pattern: Identifiable, Hashable {
+nonisolated struct Pattern: Identifiable, Hashable {
     let id: String
     let name: String
     let category: PatternCategory
@@ -98,7 +98,7 @@ struct Pattern: Identifiable, Hashable {
     }
 }
 
-func cellsFromRows(_ rows: [String]) -> [Cell] {
+nonisolated func cellsFromRows(_ rows: [String]) -> [Cell] {
     var cells: [Cell] = []
     for (y, row) in rows.enumerated() {
         for (x, ch) in row.enumerated() where ch == "#" { cells.append(Cell(x: x, y: y)) }
@@ -107,7 +107,7 @@ func cellsFromRows(_ rows: [String]) -> [Cell] {
 }
 
 /// Rotates cells by quarter turns clockwise, keeping them anchored at the top left.
-func rotateCells(_ cells: [Cell], quarterTurns: Int) -> [Cell] {
+nonisolated func rotateCells(_ cells: [Cell], quarterTurns: Int) -> [Cell] {
     var out = cells
     let turns = ((quarterTurns % 4) + 4) % 4
     for _ in 0..<turns {
@@ -117,7 +117,7 @@ func rotateCells(_ cells: [Cell], quarterTurns: Int) -> [Cell] {
     return out
 }
 
-func placePattern(_ engine: LifeEngine, _ pattern: Pattern, x ox: Int, y oy: Int, quarterTurns: Int = 0) {
+nonisolated func placePattern(_ engine: LifeEngine, _ pattern: Pattern, x ox: Int, y oy: Int, quarterTurns: Int = 0) {
     for c in rotateCells(pattern.cells, quarterTurns: quarterTurns) {
         engine.set(ox + c.x, oy + c.y, true)
     }

@@ -5,18 +5,18 @@ import Foundation
 // tie-breaks, are unchanged; only the data structures differ (flat grids
 // instead of hash maps, for speed on large boards).
 
-func cellRadial(_ x: Double, _ y: Double, width: Int, height: Int) -> Double {
+nonisolated func cellRadial(_ x: Double, _ y: Double, width: Int, height: Int) -> Double {
     let cx = Double(width - 1) / 2
     let cy = Double(height - 1) / 2
     let maxDist = hypot(cx, cy)
     return min(1, hypot(x - cx, y - cy) / maxDist)
 }
 
-func panFromX(_ x: Double, width: Int) -> Double {
+nonisolated func panFromX(_ x: Double, width: Int) -> Double {
     x / Double(width - 1) * 2 - 1
 }
 
-private struct UnionFind {
+nonisolated private struct UnionFind {
     private var parent: [Int]
 
     init(_ n: Int) {
@@ -40,7 +40,7 @@ private struct UnionFind {
 }
 
 // Forward half of the 5x5 Chebyshev-distance-2 neighborhood.
-private let forwardOffsets: [(Int, Int)] = {
+nonisolated private let forwardOffsets: [(Int, Int)] = {
     var offsets: [(Int, Int)] = []
     for dy in 0...2 {
         for dx in -2...2 where dy > 0 || dx > 0 { offsets.append((dx, dy)) }
@@ -50,7 +50,7 @@ private let forwardOffsets: [(Int, Int)] = {
 
 /// Groups cells within Chebyshev distance 2 of each other. Groups come out in
 /// the order of their first cell in `cells`.
-func groupCells(_ cells: [Cell]) -> [[Cell]] {
+nonisolated func groupCells(_ cells: [Cell]) -> [[Cell]] {
     guard let first = cells.first else { return [] }
     var (minX, maxX, minY, maxY) = (first.x, first.x, first.y, first.y)
     for c in cells {
@@ -88,12 +88,12 @@ func groupCells(_ cells: [Cell]) -> [[Cell]] {
     return groups
 }
 
-struct Point: Equatable {
+nonisolated struct Point: Equatable {
     var x: Double
     var y: Double
 }
 
-struct ClusterMetrics {
+nonisolated struct ClusterMetrics {
     var id: Int
     var cells: [Cell]
     var cellCount: Int
@@ -105,18 +105,18 @@ struct ClusterMetrics {
     var velocity: Double
 }
 
-struct ClusterEvents {
+nonisolated struct ClusterEvents {
     var born: [ClusterMetrics] = []
     var updated: [ClusterMetrics] = []
     var died: [Int] = []
 }
 
-private struct PrevCluster {
+nonisolated private struct PrevCluster {
     var cells: [Cell]
     var centroid: Point
 }
 
-private func centroidOf(_ cells: [Cell]) -> Point {
+nonisolated private func centroidOf(_ cells: [Cell]) -> Point {
     var sx = 0
     var sy = 0
     for c in cells {
@@ -127,7 +127,7 @@ private func centroidOf(_ cells: [Cell]) -> Point {
 }
 
 /// Groups live cells into organisms and keeps their ids stable across ticks.
-final class ClusterTracker {
+nonisolated final class ClusterTracker {
     private let width: Int
     private let height: Int
     private var nextId = 1
