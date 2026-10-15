@@ -7,7 +7,7 @@ final class PhysarumPasses {
     private let agentPipeline: MTLComputePipelineState
     private let injectPipeline: MTLComputePipelineState
     private let diffusePipeline: MTLComputePipelineState
-    private let depositPipeline: MTLRenderPipelineState
+    private let depositPipeline: MTLComputePipelineState
     private let foodSeedPipeline: MTLRenderPipelineState
     private let foodFadePipeline: MTLRenderPipelineState
 
@@ -16,12 +16,7 @@ final class PhysarumPasses {
         agentPipeline = context.computePipeline("agent_step")
         injectPipeline = context.computePipeline("inject")
         diffusePipeline = context.computePipeline("diffuse")
-        depositPipeline = context.renderPipeline("deposit") { d in
-            d.vertexFunction = context.function("deposit_vertex")
-            d.fragmentFunction = context.function("deposit_fragment")
-            d.colorAttachments[0].pixelFormat = .rgba8Unorm
-            d.inputPrimitiveTopology = .point
-        }
+        depositPipeline = context.computePipeline("deposit")
         foodSeedPipeline = context.renderPipeline("food seed") { d in
             d.vertexFunction = context.function("food_seed_vertex")
             d.fragmentFunction = context.function("food_seed_fragment")
@@ -115,15 +110,18 @@ final class PhysarumPasses {
         encoder.endEncoding()
     }
 
-    /// Draws each alive actor's deposit color into the trail, replacing what was there.
+    /// Writes each alive actor's deposit color into the trail, replacing what was there.
+    /// (A compute pass: rasterizing a million scattered points is far slower on tile-based GPUs.)
     func encodeDeposit(_ commandBuffer: MTLCommandBuffer, params: SimParams, actors: MTLBuffer, target: MTLTexture) {
         var params = params
-        let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: .loading(target))!
+        let encoder = commandBuffer.makeComputeCommandEncoder()!
         encoder.label = "deposit"
-        encoder.setRenderPipelineState(depositPipeline)
-        encoder.setVertexBytes(&params, length: MemoryLayout<SimParams>.stride, index: 0)
-        encoder.setVertexBuffer(actors, offset: 0, index: 1)
-        encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: Int(params.poolSize))
+        encoder.setComputePipelineState(depositPipeline)
+        encoder.setBytes(&params, length: MemoryLayout<SimParams>.stride, index: 0)
+        encoder.setBuffer(actors, offset: 0, index: 1)
+        encoder.setTexture(target, index: 0)
+        encoder.dispatchThreads(MTLSize(width: Int(params.poolSize), height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
         encoder.endEncoding()
     }
 }

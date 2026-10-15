@@ -25,34 +25,6 @@ kernel void diffuse(constant FadeParams &fade [[buffer(0)]],
     trailOut.write(float4(rgb, 1.0), gid);
 }
 
-struct PointOut {
-    float4 position [[position]];
-    float pointSize [[point_size]];
-    float4 color;
-};
-
-// One 1-px point per actor slot, drawn into the trail with no blending.
-// Dead slots are pushed outside the clip volume.
-vertex PointOut deposit_vertex(constant SimParams &params [[buffer(0)]],
-                               const device Actor *actors [[buffer(1)]],
-                               uint vid [[vertex_id]]) {
-    Actor a = actors[vid];
-    PointOut out;
-    out.pointSize = 1.0;
-    out.color = float4(a.color.rgb, 1.0);
-    if (a.alive == 0) {
-        out.position = float4(2.0, 2.0, 0.0, 1.0);
-        return out;
-    }
-    // Centre of pixel floor(pos), so the deposited pixel is the sensed pixel.
-    out.position = field_to_clip(floor(a.pos) + float2(0.5), params.width, params.height);
-    return out;
-}
-
-fragment float4 deposit_fragment(PointOut in [[stage_in]]) {
-    return in.color;
-}
-
 struct SeedOut {
     float4 position [[position]];
     float4 color;
@@ -88,4 +60,24 @@ vertex float4 fullscreen_vertex(uint vid [[vertex_id]]) {
 // `decrement` (clamped at 0 by the unorm format) without reading the texture.
 fragment float4 food_fade_fragment(constant FadeParams &fade [[buffer(0)]]) {
     return float4(fade.decrement);
+}
+
+// Writes each alive actor's deposit color into pixel floor(pos) of the trail,
+// replacing what was there. Where several actors share a pixel, one of them wins.
+kernel void deposit(constant SimParams &params [[buffer(0)]],
+                    const device Actor *actors [[buffer(1)]],
+                    texture2d<float, access::write> trail [[texture(0)]],
+                    uint id [[thread_position_in_grid]]) {
+    if (id >= params.poolSize) {
+        return;
+    }
+    Actor a = actors[id];
+    if (a.alive == 0) {
+        return;
+    }
+    int2 p = int2(floor(a.pos));
+    if (p.x < 0 || p.y < 0 || p.x >= int(trail.get_width()) || p.y >= int(trail.get_height())) {
+        return;
+    }
+    trail.write(float4(a.color.rgb, 1.0), uint2(p));
 }

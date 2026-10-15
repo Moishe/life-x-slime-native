@@ -18,3 +18,21 @@ func mulberry32(_ seed: Int) -> Rng {
 func randomNonZeroU32(_ rng: Rng) -> UInt32 {
     UInt32(rng() * 4_294_967_296) | 1
 }
+
+/// A seeded RNG that can be restarted with a new seed. Hand out `next` as an
+/// `Rng`; holders keep drawing from the current seed's sequence.
+final class ReseedableRng {
+    private var source: Rng
+
+    init(seed: Int) {
+        source = mulberry32(seed)
+    }
+
+    func reseed(_ seed: Int) {
+        source = mulberry32(seed)
+    }
+
+    func next() -> Double {
+        source()
+    }
+}

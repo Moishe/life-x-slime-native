@@ -45,17 +45,18 @@ final class Compositor {
         pendingGhost = texels
     }
 
-    /// Encodes the composite into `target`, clearing it to black first. When
-    /// `viewport` is given the field is drawn into just that region.
+    /// Encodes the composite into `target`, clearing it to `background` first.
+    /// When `viewport` is given the field is drawn into just that region.
     func encode(
         into commandBuffer: MTLCommandBuffer, target: MTLTexture, viewport: MTLViewport? = nil,
+        background: MTLClearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1),
         field: MTLTexture, physarumOpacity: Double, lifeOpacity: Double, ghostOpacity: Double
     ) {
         uploadPending(commandBuffer)
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].loadAction = .clear
-        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        pass.colorAttachments[0].clearColor = background
         pass.colorAttachments[0].storeAction = .store
         let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass)!
         encoder.label = "composite"

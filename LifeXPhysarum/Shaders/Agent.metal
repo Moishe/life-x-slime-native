@@ -75,8 +75,11 @@ static float sense(AGENT_ARGS, Actor a) {
             float foodVal = 0.0;
             if (params.foodSensitivity > 0.0) {
                 float4 f = load_or_zero(food, look);
-                float fd = hsv_distance(rgb2hsv(f.rgb), seedHsv);
-                foodVal = params.foodSensitivity * f.a * max(0.0, 1.0 - fd);
+                // Most of the field has no food, where foodVal is 0 anyway.
+                if (f.a > 0.0) {
+                    float fd = hsv_distance(rgb2hsv(f.rgb), seedHsv);
+                    foodVal = params.foodSensitivity * f.a * max(0.0, 1.0 - fd);
+                }
             }
             float score = dist - foodVal;
             if (score < minScore) {

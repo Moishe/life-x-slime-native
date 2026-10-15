@@ -1,0 +1,76 @@
+import SwiftUI
+
+/// A labeled slider with an editable value field. Right-click resets it to
+/// its default; hovering shows what it does.
+struct ParameterSlider: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var step: Double? = nil
+    let defaultValue: Double
+    var unit: String? = nil
+    /// The setting's name in settings files and Particles, shown in the tooltip.
+    var key: String? = nil
+    let help: String
+
+    private var fractionDigits: Int {
+        guard let step, step < 1 else { return step == nil ? 2 : 0 }
+        return max(0, Int((-log10(step)).rounded(.up)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                Spacer()
+                TextField(title, value: clamped, format: .number.precision(.fractionLength(fractionDigits)).grouping(.never))
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 72)
+                if let unit {
+                    Text(unit).foregroundStyle(.secondary)
+                }
+            }
+            if let step {
+                Slider(value: clamped, in: range, step: step)
+                    .labelsHidden()
+                    .controlSize(.small)
+            } else {
+                Slider(value: clamped, in: range)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+        }
+        .help(key.map { "\(help)\n\($0)" } ?? help)
+        .accessibilityElement(children: .combine)
+        .contextMenu {
+            Button("Reset to Default (\(defaultValue.formatted(.number.precision(.fractionLength(fractionDigits)))))") {
+                value = defaultValue
+            }
+            .disabled(value == defaultValue)
+        }
+    }
+
+    /// Typed values outside the slider's range are pulled back into it.
+    private var clamped: Binding<Double> {
+        Binding(get: { value }, set: { value = min(max($0, range.lowerBound), range.upperBound) })
+    }
+}
+
+extension ParameterSlider {
+    /// A slider over an integer value.
+    init(title: String, value: Binding<Int>, range: ClosedRange<Int>, defaultValue: Int, unit: String? = nil,
+         key: String? = nil, help: String) {
+        self.init(
+            title: title,
+            value: Binding(get: { Double(value.wrappedValue) }, set: { value.wrappedValue = Int($0.rounded()) }),
+            range: Double(range.lowerBound)...Double(range.upperBound),
+            step: 1, defaultValue: Double(defaultValue), unit: unit, key: key, help: help)
+    }
+}
+
+/// A short "1M" / "64K" label for a pool size.
+func poolSizeLabel(_ size: Int) -> String {
+    size >= 1 << 20 ? "\(size >> 20)M" : "\(size >> 10)K"
+}
