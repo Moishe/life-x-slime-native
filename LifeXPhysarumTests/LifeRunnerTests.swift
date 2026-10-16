@@ -1,3 +1,4 @@
+import Dispatch
 import Testing
 @testable import LifeXPhysarum
 
@@ -36,6 +37,21 @@ import Testing
         #expect(tick.organismCount == 1)
         #expect(collector.updates.map(\.sequence) == [1, 2])
         #expect(tick.texels.count == 64 * 64 * 4)
+    }
+
+    @Test func skipsTicksWhileOneIsStillRunning() async {
+        let collector = Collector()
+        let runner = LifeRunner(size: 16, seed: 1) { collector.receive($0) }
+        let gate = DispatchSemaphore(value: 0)
+        runner.edit { _ in gate.wait() } // holds Life's queue, like a slow tick
+        #expect(runner.tick(spawn: spawn, maxActors: 1000))
+        #expect(!runner.tick(spawn: spawn, maxActors: 1000))
+        #expect(!runner.tick(spawn: spawn, maxActors: 1000))
+        gate.signal()
+        runner.waitUntilIdle()
+        await collector.wait(for: 2)
+        #expect(collector.updates.filter(\.isTick).count == 1)
+        #expect(runner.tick(spawn: spawn, maxActors: 1000))
     }
 
     @Test func toggleReturnsTheNewStateSynchronously() async {

@@ -6,14 +6,23 @@ nonisolated struct SpawnSettings {
 }
 
 /// Turns Life births into Physarum actors placed randomly inside each newborn
-/// cell's block. Returns at most `maxActors`; when there are more, the newest
-/// births win (older ones would be evicted from the ring anyway).
+/// cell's block, in random birth order. Returns at most `maxActors`.
+///
+/// Births arrive in row order, and on a big board more are born than can be
+/// spawned: this keeps `maxActors`, and the per-step cap and the queue trim
+/// further. Shuffling first makes every such cut a uniform sample of the board
+/// rather than its bottom rows. (The web version keeps the last births, so its
+/// big boards only grow actors along one edge.)
 nonisolated func birthsToActors(_ births: [ColoredCell], _ settings: SpawnSettings, rng: Rng, maxActors: Int) -> [Actor] {
     guard settings.actorsPerBirth > 0, maxActors > 0 else { return [] }
     let keep = (maxActors + settings.actorsPerBirth - 1) / settings.actorsPerBirth
+    var births = births
+    for i in stride(from: births.count - 1, to: 0, by: -1) {
+        births.swapAt(i, Int(rng() * Double(i + 1)))
+    }
     var actors: [Actor] = []
     actors.reserveCapacity(min(births.count, keep) * settings.actorsPerBirth)
-    for b in births.suffix(keep) {
+    for b in births.prefix(keep) {
         let rgb = palette[b.paletteIndex]
         let color = SIMD4(rgb, 1)
         for _ in 0..<settings.actorsPerBirth {
@@ -32,7 +41,7 @@ nonisolated func birthsToActors(_ births: [ColoredCell], _ settings: SpawnSettin
             ))
         }
     }
-    return Array(actors.suffix(maxActors))
+    return Array(actors.prefix(maxActors))
 }
 
 nonisolated func deathsToFoodSeeds(_ deaths: [ColoredCell]) -> [FoodSeed] {

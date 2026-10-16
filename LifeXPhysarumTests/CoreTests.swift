@@ -223,12 +223,16 @@ private extension Double {
         #expect(birthsToActors(births, settings, rng: mulberry32(1), maxActors: 1000).count == 48)
     }
 
-    @Test func keepsOnlyTheNewestMaxActors() {
-        let births = (0..<100).map { ColoredCell(x: $0, y: 0, paletteIndex: 0) }
-        let actors = birthsToActors(births, settings, rng: mulberry32(1), maxActors: 40)
-        #expect(actors.count == 40)
-        #expect(actors.contains { $0.pos.x >= 99 * 16 })
-        #expect(!actors.contains { $0.pos.x < 16 })
+    @Test func keepsAtMostMaxActorsSampledFromTheWholeBoard() {
+        // Births arrive in row order; whatever is kept, and any prefix of it (the per-step
+        // cap and the queue trim the list), must not favor one edge of the board.
+        let births = (0..<1000).map { ColoredCell(x: $0, y: 0, paletteIndex: 0) }
+        let actors = birthsToActors(births, settings, rng: mulberry32(1), maxActors: 1600)
+        #expect(actors.count == 1600)
+        for part in [actors[..<400], actors[1200...]] {
+            #expect(part.contains { $0.pos.x < 250 * 16 })
+            #expect(part.contains { $0.pos.x >= 750 * 16 })
+        }
     }
 
     @Test func spawnsNothingWhenActorsPerBirthIs0() {

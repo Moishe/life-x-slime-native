@@ -1,4 +1,5 @@
 import Dispatch
+import Synchronization
 
 /// Runs the Life world on its own serial queue, so ticking and tracking a big
 /// board never holds up drawing. Every change to the world goes through the
@@ -25,6 +26,7 @@ nonisolated final class LifeRunner: @unchecked Sendable {
     private var epoch = 0
     private var sequence = 0
     private let random: ReseedableRng
+    private let tickPending = Mutex(false)
 
     init(size: Int, seed: Int, deliver: @escaping @MainActor (Update) -> Void) {
         random = ReseedableRng(seed: seed)
@@ -32,9 +34,18 @@ nonisolated final class LifeRunner: @unchecked Sendable {
         self.deliver = deliver
     }
 
-    /// One generation, its births turned into actors with `spawn`.
-    func tick(spawn: SpawnSettings, maxActors: Int) {
-        queue.async { self.send(self.runTick(spawn: spawn, maxActors: maxActors)) }
+    /// One generation, its births turned into actors with `spawn`. Skipped (returning
+    /// false) while the previous one is still waiting or running, so a board slower
+    /// than the tick rate falls behind instead of queueing ticks without end.
+    @discardableResult
+    func tick(spawn: SpawnSettings, maxActors: Int) -> Bool {
+        guard tickPending.withLock({ pending in defer { pending = true }; return !pending }) else { return false }
+        queue.async {
+            let update = self.runTick(spawn: spawn, maxActors: maxActors)
+            self.tickPending.withLock { $0 = false }
+            self.send(update)
+        }
+        return true
     }
 
     /// One generation, finished before returning (for movie recording, where
