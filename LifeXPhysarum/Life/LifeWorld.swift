@@ -72,8 +72,14 @@ nonisolated final class LifeWorld {
     }
 
     func setCell(_ x: Int, _ y: Int, alive: Bool) {
-        guard engine.get(x, y) != alive else { return }
-        engine.set(x, y, alive)
+        setCells([Cell(x: x, y: y)], alive: alive)
+    }
+
+    /// Sets several cells, tracking organisms once.
+    func setCells(_ cells: [Cell], alive: Bool) {
+        let changed = cells.filter { engine.get($0.x, $0.y) != alive }
+        guard !changed.isEmpty else { return }
+        for c in changed { engine.set(c.x, c.y, alive) }
         retrack()
     }
 

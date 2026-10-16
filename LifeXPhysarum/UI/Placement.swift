@@ -24,6 +24,24 @@ nonisolated func cell(at point: CGPoint, in field: CGRect, gridSize: Int) -> Cel
     return Cell(x: Int(fx * Double(gridSize)), y: Int(fy * Double(gridSize)))
 }
 
+/// The cells a drag passes through from `start` (excluded, it's already painted)
+/// to `end`, so a fast drag paints a continuous line (Bresenham).
+nonisolated func cellsOnLine(from start: Cell, to end: Cell) -> [Cell] {
+    guard start != end else { return [end] }
+    let dx = abs(end.x - start.x), dy = -abs(end.y - start.y)
+    let sx = start.x < end.x ? 1 : -1, sy = start.y < end.y ? 1 : -1
+    var error = dx + dy
+    var x = start.x, y = start.y
+    var cells: [Cell] = []
+    while x != end.x || y != end.y {
+        let e2 = 2 * error
+        if e2 >= dy { error += dy; x += sx }
+        if e2 <= dx { error += dx; y += sy }
+        cells.append(Cell(x: x, y: y))
+    }
+    return cells
+}
+
 /// Cells the tool would affect if clicked at `anchor`, clipped to the board.
 /// Paint mode affects just the cell under the cursor.
 nonisolated func ghostCells(_ pattern: Pattern?, quarterTurns: Int, anchor: Cell, gridSize: Int) -> [Cell] {

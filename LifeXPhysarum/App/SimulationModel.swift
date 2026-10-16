@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Metal
 import Observation
 import QuartzCore
@@ -230,9 +230,9 @@ final class SimulationModel {
     }
 
     /// Paints `cell` to `alive` while dragging in paint mode.
-    func paint(_ cell: Cell, alive: Bool) {
+    func paint(_ cells: [Cell], alive: Bool) {
         guard case .paint = tool else { return }
-        editWorld { $0.setCell(cell.x, cell.y, alive: alive) }
+        editWorld { $0.setCells(cells, alive: alive) }
     }
 
     func setHover(_ cell: Cell?) {
@@ -318,6 +318,30 @@ final class SimulationModel {
         } catch {
             notice = Notice(title: "Couldn’t open “\(name)”", message: error.localizedDescription)
         }
+    }
+
+    // MARK: Remembered settings
+
+    private static let savedSettingsKey = "LastSessionSettings"
+    @ObservationIgnored private var terminationObserver: NSObjectProtocol?
+
+    /// Restores the last session's settings (as a settings file) from `defaults`,
+    /// and saves them there when the app quits.
+    func persistSettings(in defaults: UserDefaults) {
+        if let data = defaults.data(forKey: Self.savedSettingsKey) {
+            loadSettings(from: data, name: "last session’s settings")
+            notice = nil // Settings from an older version just fall back to defaults.
+        }
+        nonisolated(unsafe) let defaults = defaults // UserDefaults is thread-safe
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveSettings(to: defaults) }
+        }
+    }
+
+    func saveSettings(to defaults: UserDefaults) {
+        if let data = try? settingsFileData() { defaults.set(data, forKey: Self.savedSettingsKey) }
     }
 
     // MARK: Export

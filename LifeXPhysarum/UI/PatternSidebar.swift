@@ -23,6 +23,17 @@ struct PatternSidebar: View {
                 }
             }
         }
+        // Right after choosing a pattern, focus is still here: R should rotate it
+        // (not type-select R-Pentomino) and Space play or pause, as in the field.
+        .onKeyPress("r") {
+            guard case .pattern = model.tool else { return .ignored }
+            model.rotate()
+            return .handled
+        }
+        .onKeyPress(.space) {
+            model.togglePlaying()
+            return .handled
+        }
         .safeAreaInset(edge: .bottom) {
             RotationControl(model: model)
         }

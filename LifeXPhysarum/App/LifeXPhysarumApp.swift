@@ -3,7 +3,11 @@ import SwiftUI
 @main
 struct LifeXPhysarumApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
-    @State private var model = LifeXPhysarumApp.isTesting ? nil : SimulationModel()
+    @State private var model: SimulationModel? = {
+        guard !LifeXPhysarumApp.isTesting, let model = SimulationModel() else { return nil }
+        model.persistSettings(in: .standard)
+        return model
+    }()
 
     var body: some Scene {
         Window("Life × Physarum", id: "main") {
@@ -25,6 +29,13 @@ struct LifeXPhysarumApp: App {
             SidebarCommands()
             AppCommands(model: model)
         }
+
+        Window("Life × Physarum Help", id: "help") {
+            HelpView()
+        }
+        .defaultSize(width: 560, height: 640)
+        .windowResizability(.contentMinSize)
+        .defaultPosition(.center)
     }
 
     /// Unit tests run inside the app; don't start a simulation alongside them.

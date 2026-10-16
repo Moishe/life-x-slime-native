@@ -57,8 +57,8 @@ struct ContentView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Picker("Show", selection: $model.settings.foodView) {
-                Label("Trail", systemImage: "scribble.variable").tag(false)
-                Label("Food", systemImage: "leaf").tag(true)
+                Label("Trail", systemImage: "scribble.variable").accessibilityLabel("Trail").tag(false)
+                Label("Food", systemImage: "leaf").accessibilityLabel("Food").tag(true)
             }
             .pickerStyle(.segmented)
             .help("Show the trail or the food map (T)")

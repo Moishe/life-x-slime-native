@@ -324,6 +324,17 @@ private extension Double {
         #expect(Set(ghost) == Set(cells([(11, 10), (12, 11), (10, 12), (11, 12), (12, 12)])))
     }
 
+    @Test func lineCoversEveryCellBetweenTwoDragPointsWithoutGaps() {
+        #expect(cellsOnLine(from: Cell(x: 2, y: 3), to: Cell(x: 2, y: 3)) == [Cell(x: 2, y: 3)])
+        #expect(cellsOnLine(from: Cell(x: 0, y: 0), to: Cell(x: 3, y: 0)) == cells([(1, 0), (2, 0), (3, 0)]))
+        #expect(cellsOnLine(from: Cell(x: 5, y: 5), to: Cell(x: 2, y: 2)) == cells([(4, 4), (3, 3), (2, 2)]))
+        let steep = cellsOnLine(from: Cell(x: 0, y: 0), to: Cell(x: 2, y: 7))
+        #expect(steep.count == 7 && steep.last == Cell(x: 2, y: 7))
+        for (a, b) in zip([Cell(x: 0, y: 0)] + steep, steep) {
+            #expect(abs(a.x - b.x) <= 1 && abs(a.y - b.y) <= 1)
+        }
+    }
+
     @Test func ghostClipsCellsThatFallOffTheBoard() {
         #expect(ghostCells(pattern("glider"), quarterTurns: 0, anchor: Cell(x: 126, y: 126), gridSize: 128) == [Cell(x: 127, y: 126)])
     }

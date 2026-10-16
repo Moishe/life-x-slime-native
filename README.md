@@ -43,7 +43,9 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
 | Export images | ⇧⌘E |
 | Record movie / stop | ⇧⌘R |
 
-Settings files are the web version's JSON format, so presets move between the two.
+Settings files are the web version's JSON format, so presets move between the two. The
+app also remembers your settings between sessions. Help → Life × Physarum Help has a summary
+and the shortcuts. Space and R also work in the sidebar, right after choosing a pattern.
 Export Images writes the Life layer, the trail and the mix as 2048×2048 PNGs into a new
 folder. Movies are 2048×2048 H.264 at 30 fps (one frame per Physarum step), written
 straight to disk; HEVC or 1024×1024 is used if this Mac can't encode that.
@@ -72,7 +74,13 @@ fixes to Particles. Differences:
   is skipped; results are identical.
 - **Life runs off the main thread,** so big boards don't stall drawing. While recording,
   each tick finishes before the step it feeds, as before.
-- **Paint drag:** dragging in paint mode paints the state the first click produced.
+- **Paint drag:** dragging in paint mode paints the state the first click produced, along
+  a continuous line.
+- **Births are shuffled before spawning.** Births come in row order; when more are born than
+  can be spawned (big boards), the web version keeps the last ones, so actors only appear
+  along the bottom edge. Shuffling makes whatever is kept a uniform sample of the board.
+- **Slow ticks are skipped,** not queued: a board that takes longer than the tick interval
+  runs as fast as it can rather than falling further behind.
 
 ## Tests
 

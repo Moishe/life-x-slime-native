@@ -145,3 +145,38 @@ private extension AppSettings {
         self.spawnMode = spawnMode
     }
 }
+
+@Suite @MainActor struct SettingsPersistenceTests {
+    /// removePersistentDomain leaves an empty plist behind; delete it too.
+    private func removeSuite(_ suite: String, _ defaults: UserDefaults) {
+        defaults.removePersistentDomain(forName: suite)
+        let file = URL.libraryDirectory.appending(path: "Preferences/\(suite).plist")
+        try? FileManager.default.removeItem(at: file)
+    }
+
+    @Test func restoresTheLastSessionsSettings() throws {
+        let suite = "LifeXPhysarumTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { removeSuite(suite, defaults) }
+
+        let first = try #require(SimulationModel())
+        first.params.lookDistance = 33
+        first.settings.lifeHz = 3
+        first.saveSettings(to: defaults)
+
+        let second = try #require(SimulationModel())
+        second.persistSettings(in: defaults)
+        #expect(second.params.lookDistance == 33)
+        #expect(second.settings.lifeHz == 3)
+        #expect(second.notice == nil)
+    }
+
+    @Test func startsFromDefaultsWhenNothingIsSaved() throws {
+        let suite = "LifeXPhysarumTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { removeSuite(suite, defaults) }
+        let model = try #require(SimulationModel())
+        model.persistSettings(in: defaults)
+        #expect(model.params.lookDistance == PhysarumParams().lookDistance)
+    }
+}

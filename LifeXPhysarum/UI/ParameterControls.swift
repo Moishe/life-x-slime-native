@@ -22,34 +22,45 @@ struct ParameterSlider: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
+                    .accessibilityHidden(true)
                 Spacer()
-                TextField(title, value: clamped, format: .number.precision(.fractionLength(fractionDigits)).grouping(.never))
+                TextField("", value: clamped, format: .number.precision(.fractionLength(fractionDigits)).grouping(.never))
                     .labelsHidden()
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(width: 72)
+                    .accessibilityLabel(unit.map { "\(title), \($0)" } ?? title)
                 if let unit {
                     Text(unit).foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                 }
             }
             if let step {
                 Slider(value: clamped, in: range, step: step)
                     .labelsHidden()
+                    .accessibilityLabel(title)
+                    .accessibilityValue(accessibilityValue)
                     .controlSize(.small)
             } else {
                 Slider(value: clamped, in: range)
                     .labelsHidden()
+                    .accessibilityLabel(title)
+                    .accessibilityValue(accessibilityValue)
                     .controlSize(.small)
             }
         }
         .help(key.map { "\(help)\n\($0)" } ?? help)
-        .accessibilityElement(children: .combine)
         .contextMenu {
             Button("Reset to Default (\(defaultValue.formatted(.number.precision(.fractionLength(fractionDigits)))))") {
                 value = defaultValue
             }
             .disabled(value == defaultValue)
         }
+    }
+
+    private var accessibilityValue: String {
+        let number = value.formatted(.number.precision(.fractionLength(fractionDigits)))
+        return unit.map { "\(number) \($0)" } ?? number
     }
 
     /// Typed values outside the slider's range are pulled back into it.

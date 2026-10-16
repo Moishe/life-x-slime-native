@@ -112,7 +112,7 @@ final class FieldMTKView: MTKView, MTKViewDelegate {
         let cell = cell(for: event)
         model.setHover(cell)
         guard let cell, let paintState, cell != lastDragCell else { return }
-        model.paint(cell, alive: paintState)
+        model.paint(lastDragCell.map { cellsOnLine(from: $0, to: cell) } ?? [cell], alive: paintState)
         lastDragCell = cell
     }
 

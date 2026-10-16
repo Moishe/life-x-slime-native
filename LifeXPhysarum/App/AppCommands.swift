@@ -5,8 +5,13 @@ import SwiftUI
 struct AppCommands: Commands {
     let model: SimulationModel?
     @FocusedValue(\.showInspector) private var showInspector
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(replacing: .help) {
+            // ⌘? is the system's Help search, which finds this item.
+            Button("Life × Physarum Help") { openWindow(id: "help") }
+        }
         CommandGroup(replacing: .newItem) {
             Button("Open Settings…") { run { await $0.openSettingsWithPanel() } }
                 .keyboardShortcut("o")
