@@ -5,9 +5,10 @@ struct ContentView: View {
     @Bindable var model: SimulationModel
     let context: MetalContext
     @AppStorage("showInspector") private var showInspector = true
+    @State private var columns = NavigationSplitViewVisibility.all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             PatternSidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
         } detail: {
@@ -28,6 +29,8 @@ struct ContentView: View {
             Alert(title: Text(notice.title), message: Text(notice.message))
         }
         .focusedSceneValue(\.showInspector, $showInspector)
+        .focusedSceneValue(\.showSidebar, Binding(get: { columns != .detailOnly },
+                                                   set: { columns = $0 ? .all : .detailOnly }))
         #if DEBUG
         .task { DebugSnapshot.runIfRequested(model) }
         #endif
@@ -82,4 +85,6 @@ struct ContentView: View {
 
 extension FocusedValues {
     @Entry var showInspector: Binding<Bool>?
+    /// The built-in SidebarCommands mislabels its item for this split view, so the View menu uses this.
+    @Entry var showSidebar: Binding<Bool>?
 }

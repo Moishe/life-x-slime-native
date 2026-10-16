@@ -26,7 +26,6 @@ struct LifeXPhysarumApp: App {
         }
         .windowResizability(.contentMinSize)
         .commands {
-            SidebarCommands()
             AppCommands(model: model)
         }
 

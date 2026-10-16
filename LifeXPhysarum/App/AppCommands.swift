@@ -5,9 +5,17 @@ import SwiftUI
 struct AppCommands: Commands {
     let model: SimulationModel?
     @FocusedValue(\.showInspector) private var showInspector
+    @FocusedValue(\.showSidebar) private var showSidebar
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(replacing: .sidebar) {
+            Button(showSidebar?.wrappedValue == false ? "Show Sidebar" : "Hide Sidebar") {
+                showSidebar?.wrappedValue.toggle()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
+            .disabled(showSidebar == nil)
+        }
         CommandGroup(replacing: .help) {
             // ⌘? is the system's Help search, which finds this item.
             Button("Life × Physarum Help") { openWindow(id: "help") }
@@ -16,7 +24,7 @@ struct AppCommands: Commands {
             Button("Open Settings…") { run { await $0.openSettingsWithPanel() } }
                 .keyboardShortcut("o")
         }
-        CommandGroup(replacing: .saveItem) {
+        CommandGroup(after: .saveItem) { // after, not replacing: that would remove Close (⌘W)
             Button("Save Settings…") { run { await $0.saveSettingsWithPanel() } }
                 .keyboardShortcut("s")
             Divider()
