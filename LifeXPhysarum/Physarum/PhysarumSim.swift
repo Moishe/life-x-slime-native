@@ -39,6 +39,8 @@ final class PhysarumSim {
     private var actors: MTLBuffer!
     private var children: MTLBuffer!
     private let counters: MTLBuffer
+    /// Actors per field pixel in the current step, for crowdingLimit.
+    private let density: MTLBuffer
 
     /// Per-frame-in-flight upload and readback buffers, reused round-robin.
     private struct Frame {
@@ -61,6 +63,7 @@ final class PhysarumSim {
         trailB = context.makeFieldTexture(width: width, height: height, label: "trail B")
         foodTexture = context.makeFieldTexture(width: width, height: height, label: "food")
         counters = context.makeBuffer(length: MemoryLayout<Counters>.stride, label: "counters")
+        density = context.makeBuffer(length: width * height * MemoryLayout<UInt32>.stride, label: "density")
         frames = (0..<Self.framesInFlight).map { i in
             Frame(
                 spawns: context.makeBuffer(length: 0, label: "spawns \(i)"),
@@ -108,6 +111,7 @@ final class PhysarumSim {
         // Reset childCount and aliveCount; head and childrenInserted persist.
         let reset = commandBuffer.makeBlitCommandEncoder()!
         reset.fill(buffer: counters, range: 4..<12, value: 0)
+        if p.crowdingLimit > 0 { reset.fill(buffer: density, range: 0..<density.length, value: 0) }
         reset.endEncoding()
 
         let diffuse = stepIndex % max(1, p.blurInterval) == 0
@@ -125,7 +129,7 @@ final class PhysarumSim {
             fade: fadeFood ? FadeParams(decrement: Float(p.foodFadeDecrement), blurMultiplier: 0, pad0: 0, pad1: 0) : nil)
 
         passes.encodeAgents(commandBuffer, params: simParams, actors: actors, children: children,
-                            counters: counters, trail: current, food: foodTexture)
+                            counters: counters, density: density, trail: current, food: foodTexture)
         passes.encodeInject(commandBuffer, params: simParams, actors: actors, spawns: frame.spawns,
                             children: children, counters: counters)
         passes.encodeDeposit(commandBuffer, params: simParams, actors: actors, target: current)

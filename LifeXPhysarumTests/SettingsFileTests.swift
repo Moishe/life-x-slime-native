@@ -16,10 +16,14 @@ import Testing
         let json = try JSONSerialization.jsonObject(with: SettingsFile.serialize(s, PhysarumParams())) as! [String: Any]
         #expect(json["version"] as? Int == SettingsFile.version)
         let settings = json["settings"] as! [String: Any]
-        #expect(Set(settings.keys) == ["lifeHz", "randomDensity", "actorsPerBirth", "spawnMode", "lifeOpacity", "physarumOpacity", "poolSize", "lifeSize"])
+        #expect(Set(settings.keys) == ["lifeHz", "randomDensity", "actorsPerBirth", "spawnMode", "palette", "colorCount",
+                                        "lifeOpacity", "physarumOpacity", "poolSize", "lifeSize"])
+        #expect(settings["palette"] as? String == "rainbow" && settings["colorCount"] as? Int == 8)
         #expect(settings["spawnMode"] as? String == "trickle")
         let physarum = json["physarum"] as! [String: Any]
-        #expect(physarum.count == 28)
+        #expect(physarum.count == 31)
+        #expect(physarum["minValue"] as? Double == 0 && physarum["crowdingLimit"] as? Int == 0)
+        #expect(physarum["spawnWithSeedColor"] as? Bool == false)
         #expect(physarum["lookRadians"] as? Double == 1.31)
         #expect(physarum["wrapBounds"] as? Bool == true)
     }
@@ -37,13 +41,18 @@ import Testing
         s.lifeSize = 256
         s.spawnMode = .burst
         s.poolSize = 1 << 16
+        s.palette = "fairy floss"
+        s.colorCount = 5
         var p = PhysarumParams()
         p.lookDistance = 33
         p.wrapBounds = false
         p.rngSeed = 5
+        p.minValue = 0.25
+        p.crowdingLimit = 9
+        p.spawnWithSeedColor = true
         let loaded = try SettingsFile.parse(SettingsFile.serialize(s, p), poolSizes: poolSizes)
         #expect(loaded.warnings.isEmpty)
-        #expect(loaded.applied(to: AppSettings()) == AppSettings(lifeOpacity: 0.3, poolSize: 1 << 16, lifeSize: 256, spawnMode: .burst))
+        #expect(loaded.applied(to: AppSettings()) == s)
         #expect(loaded.applied(to: PhysarumParams()) == p)
     }
 
@@ -68,12 +77,14 @@ import Testing
 
     @Test func skipsValuesOfTheWrongTypeWithAWarning() throws {
         let loaded = try SettingsFile.parse(
-            file(["lifeOpacity": "high", "spawnMode": "sometimes"], ["wrapBounds": 1, "lookDistance": NSNull(), "minSpeed": true]),
+            file(["lifeOpacity": "high", "spawnMode": "sometimes", "palette": "plaid"],
+                 ["wrapBounds": 1, "lookDistance": NSNull(), "minSpeed": true]),
             poolSizes: poolSizes
         )
         #expect(loaded.settingKeys.isEmpty && loaded.physarumKeys.isEmpty)
         #expect(loaded.warnings == [
             "Skipped \"spawnMode\": expected \"burst\" or \"trickle\".",
+            "Skipped \"palette\": expected one of rainbow, fairy floss, apple 1980s, dracula, solarized, nord, synthwave, sunset, pico-8.",
             "Skipped \"lifeOpacity\": expected a number.",
             "Skipped \"lookDistance\": expected a number.",
             "Skipped \"minSpeed\": expected a number.",
@@ -134,15 +145,21 @@ import Testing
         #expect(loaded.settingKeys.count == 8 && loaded.physarumKeys.count == 28)
         #expect(loaded.applied(to: PhysarumParams()) == PhysarumParams())
     }
-}
 
-private extension AppSettings {
-    init(lifeOpacity: Double, poolSize: Int, lifeSize: Int, spawnMode: SpawnMode) {
-        self.init()
-        self.lifeOpacity = lifeOpacity
-        self.poolSize = poolSize
-        self.lifeSize = lifeSize
-        self.spawnMode = spawnMode
+    @Test func readsTheWebVersionsPaletteAndNewParameters() throws {
+        let web = """
+        {
+          "version": 1,
+          "settings": { "palette": "pico-8", "colorCount": 12 },
+          "physarum": { "minValue": 0.4, "spawnWithSeedColor": true, "crowdingLimit": 6 }
+        }
+        """
+        let loaded = try SettingsFile.parse(Data(web.utf8), poolSizes: poolSizes)
+        #expect(loaded.warnings.isEmpty)
+        let s = loaded.applied(to: AppSettings())
+        #expect(s.palette == "pico-8" && s.colorCount == 12)
+        let p = loaded.applied(to: PhysarumParams())
+        #expect(p.minValue == 0.4 && p.spawnWithSeedColor && p.crowdingLimit == 6)
     }
 }
 

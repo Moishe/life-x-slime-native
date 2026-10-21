@@ -1,9 +1,5 @@
-// Palette hues: 8 fully saturated, full-value colors 45° apart.
-nonisolated let paletteHuesDegrees: [Float] = [0, 45, 90, 135, 180, 225, 270, 315]
-nonisolated let palette: [SIMD3<Float>] = paletteHuesDegrees.map { hsv2rgb(SIMD3($0 / 360, 1, 1)) }
-
-/// Remembers which palette color each tracked organism wears. A color lasts as
-/// long as the organism's id: splits give new ids (new colors), merges keep one.
+/// Remembers which color slot (see `colorSlots`) each tracked organism wears.
+/// A color lasts as long as the organism's id: splits give new ids (new colors), merges keep one.
 nonisolated final class OrganismPalette {
     private var colors: [Int: Int] = [:]
     private let rng: Rng
@@ -14,7 +10,7 @@ nonisolated final class OrganismPalette {
 
     func apply(_ events: ClusterEvents) {
         for id in events.died { colors[id] = nil }
-        for m in events.born { colors[m.id] = Int(rng() * Double(palette.count)) }
+        for m in events.born { colors[m.id] = Int(rng() * Double(colorSlots)) }
     }
 
     func index(of organismId: Int) -> Int? {
@@ -25,6 +21,7 @@ nonisolated final class OrganismPalette {
 nonisolated struct ColoredCell: Equatable {
     var x: Int
     var y: Int
+    /// The organism's color slot; `colorFor` turns it into a palette color.
     var paletteIndex: Int
 }
 

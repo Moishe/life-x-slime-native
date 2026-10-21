@@ -72,6 +72,16 @@ struct InspectorView: View {
                 Button("Random Fill", action: model.randomFill)
                 Button("Clear Board", action: model.clearBoard)
             }
+            Picker("Palette", selection: $model.settings.palette) {
+                ForEach(palettes) { palette in
+                    Text(palette.title).tag(palette.name)
+                }
+            }
+            .help("The colors organisms wear, and so the colors of the actors they release and the food they leave\npalette")
+            ParameterSlider(title: "Color Count", value: $model.settings.colorCount, range: 1...maxColors,
+                            defaultValue: defaults.colorCount, key: "colorCount",
+                            help: "How many colors organisms wear. Fewer than the palette has picks evenly among them; more blends between neighbors")
+            PaletteSwatch(colors: model.lifeColors)
             }
             .disabled(model.source == .camera)
         }
@@ -149,6 +159,9 @@ struct InspectorView: View {
         Section("Deposit & Color", isExpanded: $depositOpen) {
             ParameterSlider(title: "Intensity", value: $model.params.intensity, range: 0...2, step: 0.01,
                             defaultValue: defaultParams.intensity, key: "intensity", help: "How far an actor's deposit blends from the trail under it toward its own color")
+            ParameterSlider(title: "Min Brightness", value: $model.params.minValue, range: 0...1, step: 0.01,
+                            defaultValue: defaultParams.minValue, key: "minValue",
+                            help: "Keeps actors' colors at least this bright after blending, so colonies crossing the dark field don't fade to black (0 = off)")
             ParameterSlider(title: "Lock to Hues", value: $model.params.lockToHsvAngles, range: 0...12,
                             defaultValue: defaultParams.lockToHsvAngles, key: "lockToHsvAngles", help: "Snap respawned actors' hues to this many directions (0 = off)")
             ParameterSlider(title: "Hue Offset", value: $model.params.hsvAngleOffset, range: 0...1, step: 0.01,
@@ -190,6 +203,9 @@ struct InspectorView: View {
         Section("Reproduction & Lifecycle", isExpanded: $lifecycleOpen) {
             ParameterSlider(title: "Reproduction", value: $model.params.spawnProbability, range: 0...0.05, step: 0.0001,
                             defaultValue: defaultParams.spawnProbability, key: "spawnProbability", help: "Chance per step that an actor has a child")
+            ParameterSlider(title: "Crowding Limit", value: $model.params.crowdingLimit, range: 0...64,
+                            defaultValue: defaultParams.crowdingLimit, key: "crowdingLimit",
+                            help: "Only the first this-many actors on one pixel each step may have a child, which keeps dense colonies from swamping the pool (0 = no limit)")
             ParameterSlider(title: "Child Heading Spread", value: $model.params.directionVariance, range: 0...Double.pi, step: 0.01,
                             defaultValue: defaultParams.directionVariance, unit: "rad", key: "directionVariance", help: "Children head off up to this far from their parent's heading")
             ParameterSlider(title: "Child Speed Spread", value: $model.params.speedVariance, range: 0...1, step: 0.01,
@@ -202,6 +218,8 @@ struct InspectorView: View {
                 Text("Stay Dead").tag(-1)
             }
             .help("What happens to an actor that dies of old age, exhaustion or leaving the field (always_spawn_from_parent)")
+            Toggle("Inherit Seed Color", isOn: $model.params.spawnWithSeedColor)
+                .help("Children and actors respawned at a parent start in the parent's original color instead of the color it has picked up from the trail\nspawnWithSeedColor")
             ParameterSlider(title: "Lifespan", value: $model.params.life, range: 1...100_000,
                             defaultValue: defaultParams.life, unit: "steps", key: "life", help: "Steps an actor lives, given when it's inserted or respawned")
         }

@@ -25,6 +25,8 @@ enum SettingsFile {
         var randomDensity: Double
         var actorsPerBirth: Int
         var spawnMode: String
+        var palette: String
+        var colorCount: Int
         var lifeOpacity: Double
         var physarumOpacity: Double
         var poolSize: Int
@@ -40,7 +42,8 @@ enum SettingsFile {
     static func serialize(_ s: AppSettings, _ params: PhysarumParams) throws -> Data {
         let saved = Saved(
             lifeHz: s.lifeHz, randomDensity: s.randomDensity, actorsPerBirth: s.actorsPerBirth,
-            spawnMode: s.spawnMode.rawValue, lifeOpacity: s.lifeOpacity, physarumOpacity: s.physarumOpacity,
+            spawnMode: s.spawnMode.rawValue, palette: s.palette, colorCount: s.colorCount,
+            lifeOpacity: s.lifeOpacity, physarumOpacity: s.physarumOpacity,
             poolSize: s.poolSize, lifeSize: s.lifeSize
         )
         let encoder = JSONEncoder()
@@ -83,7 +86,7 @@ enum SettingsFile {
     // MARK: Fields
 
     private struct Field<Root> {
-        enum Kind { case number, bool, spawnMode }
+        enum Kind { case number, bool, spawnMode, palette }
         let key: String
         let kind: Kind
         let apply: (Any, inout Root) -> Void
@@ -108,6 +111,11 @@ enum SettingsFile {
         number("randomDensity", \.randomDensity),
         integer("actorsPerBirth", \.actorsPerBirth),
         Field(key: "spawnMode", kind: .spawnMode) { value, s in s.spawnMode = SpawnMode(rawValue: value as! String)! },
+        Field(key: "palette", kind: .palette) { value, s in s.palette = value as! String },
+        // Out-of-range counts are pulled in, as the web version's palette does.
+        Field(key: "colorCount", kind: .number) { value, s in
+            s.colorCount = min(maxColors, max(1, Int(clamping: Int64((value as! NSNumber).doubleValue.rounded()))))
+        },
         number("lifeOpacity", \.lifeOpacity),
         number("physarumOpacity", \.physarumOpacity),
         integer("poolSize", \.poolSize),
@@ -123,6 +131,7 @@ enum SettingsFile {
         number("minSpeed", \.minSpeed),
         number("maxSpeed", \.maxSpeed),
         number("intensity", \.intensity),
+        number("minValue", \.minValue),
         number("foodPerDeath", \.foodPerDeath),
         number("foodExhaustion", \.foodExhaustion),
         number("foodSensitivity", \.foodSensitivity),
@@ -130,8 +139,10 @@ enum SettingsFile {
         integer("alwaysSpawnFromParent", \.alwaysSpawnFromParent),
         number("spawnRandomOffset", \.spawnRandomOffset),
         number("spawnProbability", \.spawnProbability),
+        bool("spawnWithSeedColor", \.spawnWithSeedColor),
         number("directionVariance", \.directionVariance),
         number("speedVariance", \.speedVariance),
+        integer("crowdingLimit", \.crowdingLimit),
         integer("lockToHsvAngles", \.lockToHsvAngles),
         number("hsvAngleOffset", \.hsvAngleOffset),
         number("hsvSaturationMultiplier", \.hsvSaturationMultiplier),
@@ -169,6 +180,9 @@ enum SettingsFile {
         switch kind {
         case .spawnMode:
             return (value as? String).flatMap(SpawnMode.init(rawValue:)) == nil ? "expected \"burst\" or \"trickle\"" : nil
+        case .palette:
+            let names = palettes.map(\.name)
+            return (value as? String).map(names.contains) == true ? nil : "expected one of \(names.joined(separator: ", "))"
         case .bool:
             return (value as? NSNumber)?.isBool == true ? nil : "expected true or false"
         case .number:

@@ -28,13 +28,23 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   **R** rotates the pattern 90°.
 - **Inspector** (⌥⌘I): every setting, in collapsible sections. Hover a control for what it
   does and its name in settings files and Particles; right-click to reset it to its default.
-- **Toolbar:** play/pause, step, random fill, clear, trail/food view, record, inspector.
+- **Toolbar:** seed from Life or the camera, play/pause, step, random fill, clear, trail/food
+  view, record, inspector.
+- **Palettes:** the Life section's Palette and Color Count choose the organisms' colors (and
+  so their actors' and food's) from the web version's palettes: Rainbow, Fairy Floss, Apple
+  1980s, Dracula, Solarized, Nord, Synthwave, Sunset and PICO-8. They change live.
+- **Camera:** switch the toolbar's Seed From to Camera and motion in front of the camera
+  releases actors in the scene's colors (Vivid, its hues at full strength, or True), leaving
+  food where it stops. The Camera section picks the camera, mirrors it and sets the motion
+  threshold; Life Opacity becomes Camera Opacity. Frames are processed on the Mac and never
+  saved, except in movies you record.
 - **Status bar:** frame rate, Physarum steps per second, live actors, organisms, and actors
   added per second by Life births and by reproduction.
 
 | Action | Shortcut |
 | --- | --- |
 | Play / pause | Space (in the field) or ⌘P |
+| Seed from Life / camera | ⌥⌘1 / ⌥⌘2 |
 | Step one generation | → (in the field) or ⌘↩ |
 | Rotate pattern | R (in the field) or ⌘R |
 | Show trail / food | ⌘1 / ⌘2, or T to toggle |
@@ -55,8 +65,9 @@ straight to disk; HEVC or 1024×1024 is used if this Mac can't encode that.
 | Folder | What's there |
 | --- | --- |
 | `Core/` | Seedable RNG (bit-identical to the web's mulberry32) and the CPU color math |
-| `Life/` | Life engine, organism tracker, palette, patterns, `LifeWorld`, and `LifeRunner`, which runs Life on its own queue |
+| `Life/` | Life engine, organism tracker, palettes, patterns, `LifeWorld`, and `LifeRunner`, which runs Life on its own queue |
 | `Bridge/` | Births → actors, deaths → food, and the burst/trickle spawn scheduler |
+| `Camera/` | AVFoundation capture and frame-to-frame motion detection for Camera mode |
 | `Physarum/` | `PhysarumPasses` (each GPU pass) and `PhysarumSim` (one step, three frames in flight) |
 | `Shaders/` | Metal kernels; `ShaderTypes.h` is shared with Swift through the bridging header |
 | `Render/` | The compositor and snapshots |
@@ -79,6 +90,8 @@ fixes to Particles. Differences:
 - **Births are shuffled before spawning.** Births come in row order; when more are born than
   can be spawned (big boards), the web version keeps the last ones, so actors only appear
   along the bottom edge. Shuffling makes whatever is kept a uniform sample of the board.
+- **Camera mode is native only.** The web version has no camera, so camera options are
+  remembered by the app but not written to settings files.
 - **Slow ticks are skipped,** not queued: a board that takes longer than the tick interval
   runs as fast as it can rather than falling further behind.
 

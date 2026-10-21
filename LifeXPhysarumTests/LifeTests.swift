@@ -273,23 +273,63 @@ func pattern(_ id: String) -> Pattern { Pattern.named(id)! }
     }
 }
 
-@Suite struct PaletteTests {
-    @Test func has8FullySaturatedColorsAt45DegreeSteps() {
-        #expect(palette.count == 8)
-        for (i, rgb) in palette.enumerated() {
+/// The color slot an organism gets from this rng draw.
+private func slot(_ r: Double) -> Int { Int(r * Double(colorSlots)) }
+
+@Suite struct PaletteColorsTests {
+    @Test func makesRainbowFromEvenlySpacedFullySaturatedHues() {
+        let colors = paletteColors("rainbow", count: 8)
+        #expect(colors.count == 8)
+        for (i, rgb) in colors.enumerated() {
             let hsv = rgb2hsv(rgb)
-            #expect(abs(hsv.x * 360 - paletteHuesDegrees[i]) < 1e-3)
-            #expect(abs(hsv.y - 1) < 1e-5)
-            #expect(abs(hsv.z - 1) < 1e-5)
+            #expect(abs(hsv.x * 360 - Float(i * 45)) < 1e-3)
+            #expect(abs(hsv.y - 1) < 1e-5 && abs(hsv.z - 1) < 1e-5)
         }
     }
 
+    @Test func returnsExactlyTheStopsWhenTheCountMatches() {
+        #expect(paletteColors("apple 1980s", count: 6)[3] == SIMD3<Float>(0xE0, 0x3A, 0x3E) / 255)
+    }
+
+    @Test func picksEvenlyAmongTheStopsForFewerColorsAndBlendsNeighborsForMore() {
+        let stops = paletteColors("apple 1980s", count: 6)
+        #expect(paletteColors("apple 1980s", count: 3) == [stops[0], stops[2], stops[4]])
+        let twelve = paletteColors("apple 1980s", count: 12)
+        #expect(twelve[2] == stops[1])
+        #expect(abs(twelve[11].x - (stops[5].x + stops[0].x) / 2) < 1e-6)
+    }
+
+    @Test func givesEveryPaletteTheRequestedCountClampedTo1ThroughMaxColors() {
+        for p in palettes {
+            #expect(paletteColors(p.name, count: 5).count == 5)
+            #expect(paletteColors(p.name, count: 0).count == 1)
+            #expect(paletteColors(p.name, count: 99).count == maxColors)
+        }
+    }
+
+    @Test func hasTheWebVersionsPalettesInOrder() {
+        #expect(palettes.map(\.name) == ["rainbow", "fairy floss", "apple 1980s", "dracula", "solarized", "nord", "synthwave", "sunset", "pico-8"])
+        #expect(palettes.first { $0.name == "pico-8" }?.stops.count == 10)
+    }
+
+    @Test func fallsBackToRainbowForAnUnknownName() {
+        #expect(paletteColors("plaid", count: 4) == paletteColors("rainbow", count: 4))
+    }
+
+    @Test func spreadsSlotsEvenlyOverEveryColorCount() {
+        for n in 1...maxColors { #expect(colorSlots % n == 0) }
+        let four = paletteColors("rainbow", count: 4)
+        #expect(colorFor(four, slot: 6) == four[2])
+    }
+}
+
+@Suite struct PaletteTests {
     @Test func givesANewOrganismARandomPaletteIndex() {
         let tracker = ClusterTracker(width: 128, height: 128)
         let p = OrganismPalette(rng: sequence([0.5]))
         let ev = tracker.update(cells([(10, 10), (11, 10), (12, 10)]))
         p.apply(ev)
-        #expect(p.index(of: ev.born[0].id) == 4)
+        #expect(p.index(of: ev.born[0].id) == slot(0.5))
     }
 
     @Test func keepsAColorWhileTheIdSurvives() {
@@ -300,7 +340,7 @@ func pattern(_ id: String) -> Pattern { Pattern.named(id)! }
         let ev2 = tracker.update(cells([(11, 9), (11, 10), (11, 11)]))
         p.apply(ev2)
         #expect(ev2.updated[0].id == ev1.born[0].id)
-        #expect(p.index(of: ev1.born[0].id) == 0)
+        #expect(p.index(of: ev1.born[0].id) == slot(0.1))
     }
 
     @Test func forgetsOrganismsThatDied() {
@@ -320,8 +360,8 @@ func pattern(_ id: String) -> Pattern { Pattern.named(id)! }
         p.apply(tracker.update(cells(frag4 + [(13, 10), (14, 10)] + frag6)))
         let ev2 = tracker.update(cells(frag4 + frag6))
         p.apply(ev2)
-        #expect(p.index(of: ev2.updated[0].id) == 0)
-        #expect(p.index(of: ev2.born[0].id) == 7)
+        #expect(p.index(of: ev2.updated[0].id) == slot(0.1))
+        #expect(p.index(of: ev2.born[0].id) == slot(0.9))
     }
 
     @Test func onAMergeTheSurvivingIdKeepsItsColor() {
@@ -358,14 +398,14 @@ func pattern(_ id: String) -> Pattern { Pattern.named(id)! }
         let result = world.tick()
         #expect(result.births.count == 2)
         #expect(result.deaths.count == 2)
-        for c in result.births + result.deaths { #expect(c.paletteIndex == 2) }
+        for c in result.births + result.deaths { #expect(c.paletteIndex == slot(0.3)) }
     }
 
     @Test func attributesALoneCellDeathToItsPreviousOrganism() {
         let world = LifeWorld(width: 128, height: 128, rng: sequence([0.7]))
         world.toggle(5, 5)
         let result = world.tick()
-        #expect(result.deaths == [ColoredCell(x: 5, y: 5, paletteIndex: 5)])
+        #expect(result.deaths == [ColoredCell(x: 5, y: 5, paletteIndex: slot(0.7))])
         #expect(result.births.isEmpty)
         #expect(world.organismCount == 0)
     }
@@ -377,7 +417,7 @@ func pattern(_ id: String) -> Pattern { Pattern.named(id)! }
         _ = world.tick()
         let byPosition = Dictionary(uniqueKeysWithValues: world.liveCells().map { (Cell(x: $0.x, y: $0.y), $0.paletteIndex) })
         #expect(byPosition[Cell(x: 10, y: 10)] == 0)
-        #expect(byPosition[Cell(x: 100, y: 100)] == 7)
+        #expect(byPosition[Cell(x: 100, y: 100)] == slot(0.99))
         #expect(world.organismCount == 2)
     }
 
@@ -385,7 +425,7 @@ func pattern(_ id: String) -> Pattern { Pattern.named(id)! }
         let world = LifeWorld(width: 128, height: 128, rng: sequence([0.5]))
         world.toggle(3, 3)
         #expect(world.organismCount == 1)
-        #expect(world.liveCells() == [ColoredCell(x: 3, y: 3, paletteIndex: 4)])
+        #expect(world.liveCells() == [ColoredCell(x: 3, y: 3, paletteIndex: slot(0.5))])
         world.clear()
         #expect(world.organismCount == 0)
         #expect(world.latestEvents.died.count == 1)
@@ -395,7 +435,7 @@ func pattern(_ id: String) -> Pattern { Pattern.named(id)! }
         let world = LifeWorld(width: 128, height: 128, rng: sequence([0.5]))
         world.place(pattern("glider"), x: 126, y: 126, quarterTurns: 0)
         // Only the glider's top-right cell (127, 126) lands on the board.
-        #expect(world.liveCells() == [ColoredCell(x: 127, y: 126, paletteIndex: 4)])
+        #expect(world.liveCells() == [ColoredCell(x: 127, y: 126, paletteIndex: slot(0.5))])
     }
 
     @Test func randomFillRespectsDensity0And1() {

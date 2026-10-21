@@ -45,18 +45,22 @@ inline float hsv_distance(float3 a, float3 b) {
 }
 
 // Blends two RGB colors in HSV space, going the short way around the hue
-// circle. d is the weight toward rgb2.
+// circle. d is the weight toward rgb2. Hue is further weighted by each color's
+// chroma (saturation x value), since black and greys have no real hue.
 inline float3 hsv_mix(float3 rgb1, float3 rgb2, float d) {
     float3 a = rgb2hsv(rgb1);
     float3 b = rgb2hsv(rgb2);
+    float ca = (1.0 - d) * a.y * a.z;
+    float cb = d * b.y * b.z;
+    float t = ca + cb > 1e-6 ? cb / (ca + cb) : d;
     float dh = abs(a.x - b.x);
     float h;
     if (dh < 1.0 - dh) {
-        h = mix(a.x, b.x, d);
+        h = mix(a.x, b.x, t);
     } else if (a.x < b.x) {
-        h = fract(mix(a.x + 1.0, b.x, d));
+        h = fract(mix(a.x + 1.0, b.x, t));
     } else {
-        h = fract(mix(a.x, b.x + 1.0, d));
+        h = fract(mix(a.x, b.x + 1.0, t));
     }
     return hsv2rgb(float3(h, mix(a.y, b.y, d), mix(a.z, b.z, d)));
 }

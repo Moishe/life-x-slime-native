@@ -37,18 +37,23 @@ nonisolated func hsvDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
 }
 
 /// Blends two RGB colors in HSV space, going the short way around the hue
-/// circle. `d` is the weight toward `rgb2`.
+/// circle. `d` is the weight toward `rgb2`. Hue is further weighted by each
+/// color's chroma (saturation × value), since black and greys have no real hue
+/// (rgb2hsv says 0, red).
 nonisolated func hsvMix(_ rgb1: SIMD3<Float>, _ rgb2: SIMD3<Float>, _ d: Float) -> SIMD3<Float> {
     let a = rgb2hsv(rgb1)
     let b = rgb2hsv(rgb2)
+    let ca = (1 - d) * a.y * a.z
+    let cb = d * b.y * b.z
+    let t = ca + cb > 1e-6 ? cb / (ca + cb) : d
     let dh = abs(a.x - b.x)
     let h: Float
     if dh < 1 - dh {
-        h = mix(a.x, b.x, d)
+        h = mix(a.x, b.x, t)
     } else if a.x < b.x {
-        h = fract(mix(a.x + 1, b.x, d))
+        h = fract(mix(a.x + 1, b.x, t))
     } else {
-        h = fract(mix(a.x, b.x + 1, d))
+        h = fract(mix(a.x, b.x + 1, t))
     }
     return hsv2rgb(SIMD3(h, mix(a.y, b.y, d), mix(a.z, b.z, d)))
 }

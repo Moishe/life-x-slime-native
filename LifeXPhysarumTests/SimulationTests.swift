@@ -40,6 +40,18 @@ private func redSeed(_ x: UInt32, _ y: UInt32) -> FoodSeed {
         #expect(sim.latestCounters == c)
     }
 
+    @Test func countsCrowdingAfreshEachStep() throws {
+        let sim = makeSim()
+        sim.params.spawnProbability = 1
+        sim.params.spawnRandomOffset = 0
+        sim.params.crowdingLimit = 2
+        try sim.step(spawns: (0..<4).map { _ in actor(x: 5.5, y: 5.5) }, seeds: [])
+        try sim.step(spawns: [], seeds: [])
+        try sim.step(spawns: [], seeds: [])
+        // Two children per step from the crowd on one pixel, not two in all.
+        #expect(sim.readCounters().childrenInserted == 4)
+    }
+
     @Test func depositsANewActorIntoTheTrail() throws {
         let sim = makeSim()
         try sim.step(spawns: [actor(x: 5.5, y: 7.5, seed: [0, 1, 0, 1], color: [0, 1, 0, 1])], seeds: [])

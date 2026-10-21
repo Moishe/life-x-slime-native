@@ -26,10 +26,13 @@ nonisolated final class LifeRunner: @unchecked Sendable {
     private var epoch = 0
     private var sequence = 0
     private let random: ReseedableRng
+    private var colors: [SIMD3<Float>]
     private let tickPending = Mutex(false)
 
-    init(size: Int, seed: Int, deliver: @escaping @MainActor (Update) -> Void) {
+    init(size: Int, seed: Int, colors: [SIMD3<Float>] = paletteColors("rainbow", count: 8),
+         deliver: @escaping @MainActor (Update) -> Void) {
         random = ReseedableRng(seed: seed)
+        self.colors = colors
         world = LifeWorld(width: size, height: size, rng: random.next)
         self.deliver = deliver
     }
@@ -81,6 +84,14 @@ nonisolated final class LifeRunner: @unchecked Sendable {
         }
     }
 
+    /// Recolors the organisms (a palette or color count change) and redraws the board.
+    func setColors(_ newColors: [SIMD3<Float>]) {
+        queue.async {
+            self.colors = newColors
+            self.send(self.snapshot())
+        }
+    }
+
     /// Restarts the random sequence (organism colors, random fill, actor RNG seeds).
     func reseed(_ seed: Int) {
         queue.async { self.random.reseed(seed) }
@@ -94,15 +105,15 @@ nonisolated final class LifeRunner: @unchecked Sendable {
     private func runTick(spawn: SpawnSettings, maxActors: Int) -> Update {
         let result = world.tick()
         var update = snapshot()
-        update.actors = birthsToActors(result.births, spawn, rng: random.next, maxActors: maxActors)
-        update.seeds = deathsToFoodSeeds(result.deaths)
+        update.actors = birthsToActors(result.births, colors: colors, spawn, rng: random.next, maxActors: maxActors)
+        update.seeds = deathsToFoodSeeds(result.deaths, colors: colors)
         update.isTick = true
         return update
     }
 
     private func snapshot() -> Update {
         sequence += 1
-        return Update(epoch: epoch, sequence: sequence, gridSize: world.width, texels: lifeTexels(world.liveCells(), gridSize: world.width),
+        return Update(epoch: epoch, sequence: sequence, gridSize: world.width, texels: lifeTexels(world.liveCells(), gridSize: world.width, colors: colors),
                organismCount: world.organismCount)
     }
 

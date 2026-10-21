@@ -55,7 +55,13 @@ struct Notice: Identifiable {
 final class SimulationModel {
     // MARK: Interface state
 
-    var settings = AppSettings()
+    var settings = AppSettings() {
+        didSet {
+            if settings.palette != oldValue.palette || settings.colorCount != oldValue.colorCount {
+                life?.setColors(lifeColors)
+            }
+        }
+    }
     var params = PhysarumParams()
     var tool: Tool = .paint {
         didSet {
@@ -124,7 +130,7 @@ final class SimulationModel {
                           poolSize: initial.poolSize, cellSize: cellSize(forLifeSize: initial.lifeSize))
         scheduler = SpawnScheduler(maxQueued: initial.poolSize)
         settings = initial
-        life = LifeRunner(size: initial.lifeSize, seed: params.rngSeed) { [weak self] update in
+        life = LifeRunner(size: initial.lifeSize, seed: params.rngSeed, colors: lifeColors) { [weak self] update in
             self?.apply(update)
         }
 
@@ -142,6 +148,9 @@ final class SimulationModel {
     }
 
     var isRecording: Bool { recordingFrames != nil }
+
+    /// The colors Life's organisms wear: the chosen palette at the chosen count.
+    var lifeColors: [SIMD3<Float>] { paletteColors(settings.palette, count: settings.colorCount) }
 
     /// The field the view shows: the trail, or the food map in food view.
     var displayedField: MTLTexture { settings.foodView ? sim.foodTexture : sim.trail }

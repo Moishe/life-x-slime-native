@@ -36,6 +36,17 @@ func close(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ tolerance: Float = 1e-5) -> B
         #expect(abs(rgb2hsv(hsvMix(hsv2rgb([0.1, 1, 1]), hsv2rgb([0.9, 1, 1]), 0.25)).x - 0.05) < 1e-4)
     }
 
+    @Test func mixKeepsTheHueOfAColorMixedWithBlackOrGrey() {
+        // Black and grey report hue 0 (red), but have no real hue to pull toward.
+        #expect(abs(rgb2hsv(hsvMix([0, 0, 0], hsv2rgb([0.25, 1, 1]), 0.37)).x - 0.25) < 1e-4)
+        #expect(abs(rgb2hsv(hsvMix(hsv2rgb([0.6, 1, 1]), [0.5, 0.5, 0.5], 0.5)).x - 0.6) < 1e-4)
+    }
+
+    @Test func mixWeightsHueByChroma() {
+        // Equal d, but the dim blue-green has a quarter of the chroma: hue lands 1/5 of the way to it.
+        #expect(abs(rgb2hsv(hsvMix(hsv2rgb([0.2, 1, 1]), hsv2rgb([0.4, 0.5, 0.5]), 0.5)).x - 0.24) < 1e-4)
+    }
+
     @Test func mixInterpolatesDirectlyWhenNoWrapIsShorter() {
         #expect(abs(rgb2hsv(hsvMix(hsv2rgb([0.2, 1, 1]), hsv2rgb([0.4, 1, 1]), 0.5)).x - 0.3) < 1e-4)
         #expect(close(hsvMix([0, 0, 1], [1, 0, 0], 1), [1, 0, 0], 1e-4))
@@ -153,7 +164,7 @@ private extension Double {
         #expect(MemoryLayout<Actor>.offset(of: \.color) == 32)
         #expect(MemoryLayout<Actor>.offset(of: \.age) == 48)
         #expect(MemoryLayout<Actor>.offset(of: \.rng) == 60)
-        #expect(MemoryLayout<SimParams>.stride == 112)
+        #expect(MemoryLayout<SimParams>.stride == 128)
         #expect(MemoryLayout<FoodSeed>.stride == 32)
         #expect(MemoryLayout<Counters>.stride == 16)
     }
@@ -164,8 +175,12 @@ private extension Double {
         p.wrapBounds = false
         p.lookSlices = 3
         p.lockToHsvAngles = 6
+        p.crowdingLimit = 7
+        p.minValue = 0.35
+        p.spawnWithSeedColor = true
         let s = SimParams(p, SimFrame(width: 2048, height: 1024, step: 77, poolSize: 256, maxChildren: 32, spawnCount: 5))
         #expect(s.width == 2048 && s.height == 1024)
+        #expect(s.crowdingLimit == 7 && s.minValue == Float(0.35) && s.spawnWithSeedColor == 1)
         #expect(s.lookSlices == 3 && s.lockToHsvAngles == 6)
         #expect(s.alwaysSpawnFromParent == -1)
         #expect(s.wrapBounds == 0)
@@ -191,11 +206,15 @@ private extension Double {
         #expect(s.lifeHz == 7.5 && s.randomDensity == 0.2 && s.actorsPerBirth == 129)
         #expect(s.spawnMode == .trickle && s.lifeOpacity == 0.05 && s.physarumOpacity == 1)
         #expect(s.poolSize == 1_048_576 && s.lifeSize == 64)
+        #expect(s.palette == "rainbow" && s.colorCount == 8)
+        let p = PhysarumParams()
+        #expect(p.minValue == 0 && p.crowdingLimit == 0 && !p.spawnWithSeedColor)
     }
 }
 
 @Suite struct SpawnerTests {
     let settings = SpawnSettings(actorsPerBirth: 16, cellSize: 16, minSpeed: 0.3, life: 20000)
+    let colors = paletteColors("rainbow", count: 8)
 
     func fakeActors(_ n: Int, tag: Float = 0) -> [Actor] {
         (0..<n).map { i in
@@ -204,7 +223,7 @@ private extension Double {
     }
 
     @Test func spawnsActorsPerBirthInsideEachNewbornCellBlock() {
-        let actors = birthsToActors([ColoredCell(x: 3, y: 5, paletteIndex: 2)], settings, rng: mulberry32(1), maxActors: 1000)
+        let actors = birthsToActors([ColoredCell(x: 3, y: 5, paletteIndex: 2)], colors: colors, settings, rng: mulberry32(1), maxActors: 1000)
         #expect(actors.count == 16)
         for a in actors {
             #expect(a.pos.x >= 48 && a.pos.x < 64)
@@ -213,21 +232,21 @@ private extension Double {
             #expect(a.speed == 0.3)
             #expect(a.age == 0 && a.life == 20000 && a.alive == 1)
             #expect(a.rng % 2 == 1)
-            #expect(a.seed == SIMD4(palette[2], 1))
-            #expect(a.color == SIMD4(palette[2], 1))
+            #expect(a.seed == SIMD4(colors[2], 1))
+            #expect(a.color == SIMD4(colors[2], 1))
         }
     }
 
     @Test func producesBirthsTimesActorsPerBirth() {
         let births = (0..<3).map { ColoredCell(x: $0, y: 0, paletteIndex: $0) }
-        #expect(birthsToActors(births, settings, rng: mulberry32(1), maxActors: 1000).count == 48)
+        #expect(birthsToActors(births, colors: colors, settings, rng: mulberry32(1), maxActors: 1000).count == 48)
     }
 
     @Test func keepsAtMostMaxActorsSampledFromTheWholeBoard() {
         // Births arrive in row order; whatever is kept, and any prefix of it (the per-step
         // cap and the queue trim the list), must not favor one edge of the board.
         let births = (0..<1000).map { ColoredCell(x: $0, y: 0, paletteIndex: 0) }
-        let actors = birthsToActors(births, settings, rng: mulberry32(1), maxActors: 1600)
+        let actors = birthsToActors(births, colors: colors, settings, rng: mulberry32(1), maxActors: 1600)
         #expect(actors.count == 1600)
         for part in [actors[..<400], actors[1200...]] {
             #expect(part.contains { $0.pos.x < 250 * 16 })
@@ -238,14 +257,14 @@ private extension Double {
     @Test func spawnsNothingWhenActorsPerBirthIs0() {
         var s = settings
         s.actorsPerBirth = 0
-        #expect(birthsToActors([ColoredCell(x: 0, y: 0, paletteIndex: 0)], s, rng: mulberry32(1), maxActors: 100).isEmpty)
+        #expect(birthsToActors([ColoredCell(x: 0, y: 0, paletteIndex: 0)], colors: colors, s, rng: mulberry32(1), maxActors: 100).isEmpty)
     }
 
     @Test func makesOneFoodSeedPerDeathInTheOrganismColor() {
-        let seeds = deathsToFoodSeeds([ColoredCell(x: 4, y: 7, paletteIndex: 5)])
+        let seeds = deathsToFoodSeeds([ColoredCell(x: 4, y: 7, paletteIndex: 5)], colors: colors)
         #expect(seeds.count == 1)
         #expect(seeds[0].cell == [4, 7])
-        #expect(seeds[0].color == SIMD4(palette[5], 1))
+        #expect(seeds[0].color == SIMD4(colors[5], 1))
     }
 
     @Test func burstHandsEverythingToTheNextStep() {
@@ -344,10 +363,11 @@ private extension Double {
     }
 
     @Test func lifeTexelsWriteEachLiveCellOpaqueInItsPaletteColor() {
-        let t = lifeTexels([ColoredCell(x: 1, y: 2, paletteIndex: 3)], gridSize: 4)
+        let colors = paletteColors("rainbow", count: 8)
+        let t = lifeTexels([ColoredCell(x: 1, y: 2, paletteIndex: 3)], gridSize: 4, colors: colors)
         #expect(t.count == 64)
         let o = (2 * 4 + 1) * 4
-        let rgb = palette[3]
+        let rgb = colors[3]
         #expect(Array(t[o..<o + 4]) == [UInt8((rgb.x * 255).rounded()), UInt8((rgb.y * 255).rounded()), UInt8((rgb.z * 255).rounded()), 255])
         #expect(Array(t[0..<4]) == [0, 0, 0, 0])
     }

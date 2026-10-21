@@ -69,10 +69,11 @@ final class PhysarumPasses {
         encoder.endEncoding()
     }
 
-    /// Moves, kills/respawns, steers and reproduces every actor slot.
+    /// Moves, kills/respawns, steers and reproduces every actor slot. `density`
+    /// holds a UInt32 per field pixel, zeroed when `params.crowdingLimit` is on.
     func encodeAgents(
         _ commandBuffer: MTLCommandBuffer, params: SimParams, actors: MTLBuffer, children: MTLBuffer,
-        counters: MTLBuffer, trail: MTLTexture, food: MTLTexture
+        counters: MTLBuffer, density: MTLBuffer, trail: MTLTexture, food: MTLTexture
     ) {
         var params = params
         let encoder = commandBuffer.makeComputeCommandEncoder()!
@@ -82,6 +83,7 @@ final class PhysarumPasses {
         encoder.setBuffer(actors, offset: 0, index: 1)
         encoder.setBuffer(children, offset: 0, index: 2)
         encoder.setBuffer(counters, offset: 0, index: 3)
+        encoder.setBuffer(density, offset: 0, index: 4)
         encoder.setTexture(trail, index: 0)
         encoder.setTexture(food, index: 1)
         encoder.dispatchThreads(MTLSize(width: Int(params.poolSize), height: 1, depth: 1),

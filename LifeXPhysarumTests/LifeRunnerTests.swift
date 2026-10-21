@@ -63,6 +63,22 @@ import Testing
         #expect(collector.updates.map(\.organismCount) == [1, 0])
     }
 
+    @Test func newColorsRedrawTheBoardAndColorTheNextTicksSpawns() async {
+        let collector = Collector()
+        let runner = LifeRunner(size: 16, seed: 1) { collector.receive($0) }
+        runner.edit { $0.place(Pattern.named("blinker")!, x: 5, y: 5, quarterTurns: 0) }
+        let white: SIMD3<Float> = [1, 1, 1]
+        runner.setColors([white])
+        await collector.wait(for: 2)
+        let redrawn = collector.updates[1]
+        #expect(!redrawn.isTick)
+        let o = (5 * 16 + 6) * 4 // the blinker's middle cell
+        #expect(Array(redrawn.texels[o..<o + 4]) == [255, 255, 255, 255])
+        let tick = runner.tickNow(spawn: spawn, maxActors: 1000)
+        #expect(tick.actors.allSatisfy { $0.seed == SIMD4(white, 1) })
+        #expect(tick.seeds.allSatisfy { $0.color == SIMD4(white, 1) })
+    }
+
     @Test func tickNowFinishesBeforeReturningAndResizeStartsANewEpoch() async {
         let collector = Collector()
         let runner = LifeRunner(size: 16, seed: 1) { collector.receive($0) }

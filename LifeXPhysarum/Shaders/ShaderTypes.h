@@ -49,7 +49,11 @@ typedef struct {
     unsigned int poolSize;
     unsigned int maxChildren;
     unsigned int spawnCount;
-    unsigned int pad;
+    unsigned int crowdingLimit;       // 0 = off
+    float minValue;                   // 0 = off
+    unsigned int spawnWithSeedColor;
+    unsigned int pad1;
+    unsigned int pad2;
 } SimParams;
 
 // GPU counters; the shaders treat each word as an atomic_uint.

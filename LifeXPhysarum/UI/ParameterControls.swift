@@ -81,6 +81,23 @@ extension ParameterSlider {
     }
 }
 
+/// A strip showing each of a palette's colors.
+struct PaletteSwatch: View {
+    let colors: [SIMD3<Float>]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(colors.indices, id: \.self) { i in
+                let c = colors[i]
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)))
+            }
+        }
+        .frame(height: 14)
+        .accessibilityHidden(true)
+    }
+}
+
 /// A short "1M" / "64K" label for a pool size.
 func poolSizeLabel(_ size: Int) -> String {
     size >= 1 << 20 ? "\(size >> 20)M" : "\(size >> 10)K"

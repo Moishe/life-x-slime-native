@@ -16,6 +16,10 @@ struct AppSettings: Equatable {
     var randomDensity = 0.2
     var actorsPerBirth = 129
     var spawnMode: SpawnMode = .trickle
+    /// A palette name from `palettes`, as in settings files.
+    var palette = "rainbow"
+    /// How many of the palette's colors organisms wear (1...maxColors).
+    var colorCount = 8
     var lifeOpacity = 0.05
     var physarumOpacity = 1.0
     var foodView = false
@@ -36,6 +40,8 @@ struct PhysarumParams: Equatable, Codable {
     var minSpeed = 1.13
     var maxSpeed = 2.81
     var intensity = 0.37
+    /// Floor on an actor's color brightness after each step's blend (0 = off).
+    var minValue = 0.0
     var foodPerDeath = 0.5
     var foodExhaustion = 0.0
     var foodSensitivity = 0.1
@@ -43,8 +49,12 @@ struct PhysarumParams: Equatable, Codable {
     var alwaysSpawnFromParent = 1
     var spawnRandomOffset = 1.0
     var spawnProbability = 0.0134
+    /// Children and parent respawns start in the parent's seed color, not its trail-blended one.
+    var spawnWithSeedColor = false
     var directionVariance = 1.65
     var speedVariance = 0.1
+    /// Actors past this many on one pixel in a step don't reproduce (0 = off).
+    var crowdingLimit = 0
     var lockToHsvAngles = 0
     var hsvAngleOffset = 1.0
     var hsvSaturationMultiplier = 1.0
@@ -98,7 +108,11 @@ extension SimParams {
             poolSize: UInt32(frame.poolSize),
             maxChildren: UInt32(frame.maxChildren),
             spawnCount: UInt32(frame.spawnCount),
-            pad: 0
+            crowdingLimit: UInt32(clamping: p.crowdingLimit),
+            minValue: Float(p.minValue),
+            spawnWithSeedColor: p.spawnWithSeedColor ? 1 : 0,
+            pad1: 0,
+            pad2: 0
         )
     }
 }

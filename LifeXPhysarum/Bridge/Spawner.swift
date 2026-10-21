@@ -6,7 +6,7 @@ nonisolated struct SpawnSettings: Sendable {
 }
 
 /// A cell that releases actors (a birth) or leaves food (a death), in its color.
-/// Life's cells take their organism's palette color; the camera's, the scene's hue.
+/// Life's cells take their organism's palette color; the camera's, the scene's.
 nonisolated struct SeedCell: Equatable {
     var x: Int
     var y: Int
@@ -14,15 +14,18 @@ nonisolated struct SeedCell: Equatable {
 }
 
 extension ColoredCell {
-    nonisolated var seedCell: SeedCell { SeedCell(x: x, y: y, color: palette[paletteIndex]) }
+    nonisolated func seedCell(_ colors: [SIMD3<Float>]) -> SeedCell {
+        SeedCell(x: x, y: y, color: colorFor(colors, slot: paletteIndex))
+    }
 }
 
-nonisolated func birthsToActors(_ births: [ColoredCell], _ settings: SpawnSettings, rng: Rng, maxActors: Int) -> [Actor] {
-    birthsToActors(births.map(\.seedCell), settings, rng: rng, maxActors: maxActors)
+nonisolated func birthsToActors(_ births: [ColoredCell], colors: [SIMD3<Float>], _ settings: SpawnSettings,
+                                rng: Rng, maxActors: Int) -> [Actor] {
+    birthsToActors(births.map { $0.seedCell(colors) }, settings, rng: rng, maxActors: maxActors)
 }
 
-nonisolated func deathsToFoodSeeds(_ deaths: [ColoredCell]) -> [FoodSeed] {
-    deathsToFoodSeeds(deaths.map(\.seedCell))
+nonisolated func deathsToFoodSeeds(_ deaths: [ColoredCell], colors: [SIMD3<Float>]) -> [FoodSeed] {
+    deathsToFoodSeeds(deaths.map { $0.seedCell(colors) })
 }
 
 /// Turns Life births into Physarum actors placed randomly inside each newborn

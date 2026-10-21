@@ -42,9 +42,10 @@ private func runAgent(
     let counterBuffer = countersBuffer()
     let trailTexture = texture(W, trail ?? solidTexels(W, W, [0, 0, 0, 0]))
     let foodTexture = texture(W, food ?? solidTexels(W, W, [0, 0, 0, 0]))
+    let density = makeBuffer([UInt32](repeating: 0, count: W * W))
     run {
         passes.encodeAgents($0, params: params, actors: actorBuffer, children: children,
-                            counters: counterBuffer, trail: trailTexture, food: foodTexture)
+                            counters: counterBuffer, density: density, trail: trailTexture, food: foodTexture)
     }
     return AgentResult(
         actors: read(actorBuffer, as: Actor.self, count: actors.count),
@@ -144,6 +145,17 @@ private func seedPickingOtherParent(_ pool: Int) -> UInt32 {
         #expect(isClose(abs(r.actors[0].pos.y - 50), 2))
     }
 
+    @Test func respawnsWithTheParentsSeedNotItsBlendedColorWhenSpawnWithSeedColorIsOn() {
+        let pool = 64
+        let green: SIMD4<Float> = [0, 1, 0, 1]
+        let brown: SIMD4<Float> = [0.4, 0.25, 0.1, 1]
+        let actors = [actor(x: 5, y: 5, age: 9, life: 5, rng: seedPickingOtherParent(pool))]
+            + (1..<pool).map { _ in actor(x: 50, y: 50, seed: green, color: brown) }
+        let r = runAgent(actors) { $0.alwaysSpawnFromParent = 1; $0.spawnRandomOffset = 0; $0.spawnWithSeedColor = true }
+        let seed = r.actors[0].seed
+        #expect(isClose(seed.x, 0, 1e-4) && isClose(seed.y, 1, 1e-4) && isClose(seed.z, 0, 1e-4))
+    }
+
     @Test func fallsBackToARandomPositionWhenTheChosenParentIsDead() {
         let pool = 64
         let green: SIMD4<Float> = [0, 1, 0, 1]
@@ -206,6 +218,12 @@ private func seedPickingOtherParent(_ pool: Int) -> UInt32 {
         #expect(isClose(c.x, expected.x, 0.01) && isClose(c.y, expected.y, 0.01) && isClose(c.z, expected.z, 0.01))
         #expect(isClose(c.w, 0.5, 1e-5))
     }
+
+    @Test func floorsTheBlendedColorsBrightnessAtMinValue() {
+        let r = runAgent([actor()]) { $0.intensity = 0.2; $0.minValue = 0.6; $0.directionMomentum = 1 }
+        let c = r.actors[0].color
+        #expect(isClose(rgb2hsv(SIMD3(c.x, c.y, c.z)).z, 0.6))
+    }
 }
 
 @Suite(.serialized) struct AgentReproductionTests {
@@ -225,6 +243,18 @@ private func seedPickingOtherParent(_ pool: Int) -> UInt32 {
             #expect(c.seed.x == 1 && c.seed.y == 0 && c.seed.z == 0)
             #expect(c.rng != 0)
         }
+    }
+
+    @Test func startsAChildInItsParentsSeedColorWhenSpawnWithSeedColorIsOn() {
+        let brown: SIMD4<Float> = [0.4, 0.25, 0.1, 1]
+        let r = runAgent([actor(color: brown)]) { $0.spawnProbability = 1; $0.spawnWithSeedColor = true }
+        #expect(r.children[0].color == [1, 0, 0, 1])
+    }
+
+    @Test func letsOnlyCrowdingLimitActorsOnOnePixelReproduce() {
+        let crowd = [actor(), actor(), actor(), actor(), actor(x: 10)]
+        #expect(runAgent(crowd) { $0.spawnProbability = 1; $0.crowdingLimit = 2 }.counters.childCount == 3)
+        #expect(runAgent(crowd) { $0.spawnProbability = 1; $0.crowdingLimit = 0 }.counters.childCount == 5)
     }
 
     @Test func queuesNoChildrenAtProbability0() {

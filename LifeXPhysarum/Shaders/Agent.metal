@@ -5,8 +5,9 @@ constant float MIN_DISTANCE = 5.0;
 
 // The agent kernel's bindings, passed down to its helpers.
 #define AGENT_ARGS constant SimParams &params, device Actor *actors, device Actor *children, \
-    device AtomicCounters &counters, texture2d<float, access::read> trail, texture2d<float, access::read> food
-#define AGENT_PASS params, actors, children, counters, trail, food
+    device AtomicCounters &counters, device atomic_uint *density, \
+    texture2d<float, access::read> trail, texture2d<float, access::read> food
+#define AGENT_PASS params, actors, children, counters, density, trail, food
 
 static bool is_out_of_bounds(constant SimParams &params, float2 p) {
     return p.x < 0.0 || p.y < 0.0 || p.x >= params.width || p.y >= params.height;
@@ -22,13 +23,20 @@ static float2 keep_in_field(constant SimParams &params, float2 p) {
     return clamp(p, float2(0.0), inside);
 }
 
+// The field pixel under p. Respawns can land just outside the field, so it clamps.
+static uint pixel_index(constant SimParams &params, float2 p) {
+    uint2 c = uint2(clamp(floor(p), float2(0.0), float2(params.width, params.height) - 1.0));
+    return c.y * uint(params.width) + c.x;
+}
+
 static float4 hue_lock(constant SimParams &params, float3 rgb) {
     return dominant_color(float4(rgb, 1.0), params.lockToHsvAngles, params.hsvAngleOffset,
                           params.hsvSaturationMultiplier, params.hsvValueMultiplier);
 }
 
 // Respawn in place, per alwaysSpawnFromParent (> 0 from a random living
-// parent, otherwise at a random position keeping its own color).
+// parent, otherwise at a random position keeping its own color). A parent
+// passes on its trail-blended color, or its seed when spawnWithSeedColor is on.
 static void respawn(AGENT_ARGS, thread Actor &a, thread uint &rng) {
     bool fromParent = false;
     if (params.alwaysSpawnFromParent > 0) {
@@ -38,7 +46,7 @@ static void respawn(AGENT_ARGS, thread Actor &a, thread uint &rng) {
         if (parent.alive != 0) {
             a.pos = parent.pos;
             a.dir = parent.dir;
-            a.color = hue_lock(params, parent.color.rgb);
+            a.color = hue_lock(params, params.spawnWithSeedColor != 0 ? parent.seed.rgb : parent.color.rgb);
             fromParent = true;
         }
     }
@@ -100,6 +108,9 @@ static void maybe_spawn_child(AGENT_ARGS, Actor a, thread uint &rng) {
         return;
     }
     Actor c = a;
+    if (params.spawnWithSeedColor != 0) {
+        c.color = a.seed;
+    }
     float offset = (rand(rng) * 2.0 - 1.0) * params.spawnRandomOffset;
     c.pos = keep_in_field(params, a.pos + float2(-sin(a.dir), cos(a.dir)) * offset);
     c.dir = a.dir + (rand(rng) * 2.0 - 1.0) * params.directionVariance;
@@ -146,19 +157,34 @@ static bool step_actor(AGENT_ARGS, uint id) {
     a.age += 1;
 
     float4 trailHere = load_or_zero(trail, a.pos);
-    a.color = float4(hsv_mix(trailHere.rgb, a.color.rgb, params.intensity), params.intensity);
+    float3 rgb = hsv_mix(trailHere.rgb, a.color.rgb, params.intensity);
+    // Floor the value so colonies wandering over the black field don't fade to black.
+    if (params.minValue > 0.0) {
+        float3 hsv = rgb2hsv(rgb);
+        hsv.z = max(hsv.z, params.minValue);
+        rgb = hsv2rgb(hsv);
+    }
+    a.color = float4(rgb, params.intensity);
 
-    maybe_spawn_child(AGENT_PASS, a, rng);
+    // Only the first crowdingLimit actors to reach a pixel this step may reproduce.
+    bool crowded = params.crowdingLimit > 0
+        && atomic_fetch_add_explicit(&density[pixel_index(params, a.pos)], 1u, memory_order_relaxed) >= params.crowdingLimit;
+    if (!crowded) {
+        maybe_spawn_child(AGENT_PASS, a, rng);
+    }
     a.rng = rng;
     actors[id] = a;
     return true;
 }
 
 // Moves, kills/respawns, steers and reproduces every actor, counting the living.
+// density counts actors per field pixel this step (for crowdingLimit); it must
+// be cleared before the pass when crowdingLimit is on.
 kernel void agent_step(constant SimParams &params [[buffer(0)]],
                        device Actor *actors [[buffer(1)]],
                        device Actor *children [[buffer(2)]],
                        device AtomicCounters &counters [[buffer(3)]],
+                       device atomic_uint *density [[buffer(4)]],
                        texture2d<float, access::read> trail [[texture(0)]],
                        texture2d<float, access::read> food [[texture(1)]],
                        uint gid [[thread_position_in_grid]]) {

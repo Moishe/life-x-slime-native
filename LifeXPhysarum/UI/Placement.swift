@@ -55,10 +55,10 @@ nonisolated func ghostCells(_ pattern: Pattern?, quarterTurns: Int, anchor: Cell
 nonisolated let ghostRGBA: [UInt8] = [90, 170, 255, 120]
 
 /// One RGBA texel per Life cell: palette color where alive, transparent elsewhere.
-nonisolated func lifeTexels(_ cells: [ColoredCell], gridSize: Int) -> [UInt8] {
+nonisolated func lifeTexels(_ cells: [ColoredCell], gridSize: Int, colors: [SIMD3<Float>]) -> [UInt8] {
     var texels = [UInt8](repeating: 0, count: gridSize * gridSize * 4)
     for c in cells {
-        let rgb = palette[c.paletteIndex]
+        let rgb = colorFor(colors, slot: c.paletteIndex)
         let o = (c.y * gridSize + c.x) * 4
         texels[o] = UInt8((rgb.x * 255).rounded())
         texels[o + 1] = UInt8((rgb.y * 255).rounded())
