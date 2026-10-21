@@ -42,15 +42,24 @@ struct AppCommands: Commands {
                     .keyboardShortcut("p")
                 Button("Step Generation") { model?.step() }
                     .keyboardShortcut(.return)
+                    .disabled(model?.source == .camera)
                 Divider()
-                Button("Random Fill") { model?.randomFill() }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
-                Button("Clear Board") { model?.clearBoard() }
-                    .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                Toggle("Seed from Life", isOn: sourceBinding(.life))
+                    .keyboardShortcut("1", modifiers: [.command, .option])
+                Toggle("Seed from Camera", isOn: sourceBinding(.camera))
+                    .keyboardShortcut("2", modifiers: [.command, .option])
                 Divider()
-                Button("Rotate Pattern") { model?.rotate() }
-                    .keyboardShortcut("r")
-                    .disabled(model?.tool.pattern == nil)
+                Group {
+                    Button("Random Fill") { model?.randomFill() }
+                        .keyboardShortcut("f", modifiers: [.command, .shift])
+                    Button("Clear Board") { model?.clearBoard() }
+                        .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                    Divider()
+                    Button("Rotate Pattern") { model?.rotate() }
+                        .keyboardShortcut("r")
+                        .disabled(model?.tool.pattern == nil)
+                }
+                .disabled(model?.source == .camera)
                 Divider()
                 Button("Clear Trail") { model?.clearTrail() }
                 Button("Clear Food") { model?.clearFood() }
@@ -74,6 +83,13 @@ struct AppCommands: Commands {
             .disabled(showInspector == nil)
             Divider()
         }
+    }
+
+    /// On when `source` is the current one; turning it on switches to it.
+    private func sourceBinding(_ source: SeedSource) -> Binding<Bool> {
+        Binding(get: { model?.source == source }, set: { on in
+            if on, let model { Task { await model.setSource(source) } }
+        })
     }
 
     private func run(_ action: @escaping (SimulationModel) async -> Void) {

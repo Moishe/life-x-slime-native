@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Metal
 import Observation
 import QuartzCore
@@ -11,6 +12,34 @@ struct Readouts: Equatable {
     var organisms = 0
     var lifeInsertsPerSec = 0.0
     var childInsertsPerSec = 0.0
+    var movingCells = 0
+}
+
+/// What releases actors: Life's births, or motion in front of the camera.
+enum SeedSource: String, CaseIterable {
+    case life, camera
+}
+
+/// Camera options. Not part of settings files (the web version has no camera).
+struct CameraSettings: Codable, Equatable {
+    /// The chosen camera's unique ID; nil means the system default.
+    var deviceID: String?
+    var mirrored = true
+    /// How much a cell's brightness must change between frames to count as motion (0–1).
+    var motionThreshold = 0.08
+    var colors = CameraColors.vivid
+
+    init() {}
+
+    // Tolerates settings saved before a field existed.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = CameraSettings()
+        deviceID = try c.decodeIfPresent(String.self, forKey: .deviceID)
+        mirrored = try c.decodeIfPresent(Bool.self, forKey: .mirrored) ?? defaults.mirrored
+        motionThreshold = try c.decodeIfPresent(Double.self, forKey: .motionThreshold) ?? defaults.motionThreshold
+        colors = try c.decodeIfPresent(CameraColors.self, forKey: .colors) ?? defaults.colors
+    }
 }
 
 /// A message for the user, shown as an alert.
@@ -39,6 +68,16 @@ final class SimulationModel {
     private(set) var recordingFrames: Int?
     private(set) var isStartingRecording = false
     var notice: Notice?
+    private(set) var source = SeedSource.life
+    private(set) var isStartingCamera = false
+    var cameraSettings = CameraSettings() {
+        didSet {
+            if source == .camera, cameraSettings.deviceID != oldValue.deviceID { Task { await startCamera() } }
+        }
+    }
+    private(set) var cameraDevices: [CameraDevice] = []
+    /// The camera in use while the source is the camera.
+    private(set) var activeCamera: CameraDevice?
     /// The last export, for the status bar's "Show in Finder".
     private(set) var lastSaved: URL?
     let poolSizes: [Int]
@@ -60,6 +99,9 @@ final class SimulationModel {
     @ObservationIgnored private var organismCount = 0
     @ObservationIgnored private var hover: Cell?
     @ObservationIgnored private var recorder: MovieRecorder?
+    @ObservationIgnored private var camera: CameraSource?
+    @ObservationIgnored private var deviceObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var movingCells = 0
 
     // MARK: Readouts
 
@@ -86,6 +128,14 @@ final class SimulationModel {
             self?.apply(update)
         }
 
+        // Keep the camera list current, and leave Camera mode if its camera goes away.
+        for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
+            deviceObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                let id = (note.object as? AVCaptureDevice)?.uniqueID
+                MainActor.assumeIsolated { self?.cameraDevicesChanged(disconnected: name == AVCaptureDevice.wasDisconnectedNotification ? id : nil) }
+            })
+        }
+
         readoutTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateReadouts() }
         }
@@ -100,6 +150,7 @@ final class SimulationModel {
 
     /// Advances the simulations by `dtMs` of wall-clock time.
     func advance(dtMs: Double) {
+        if source == .camera { camera?.setConfig(cameraConfig) }
         if recorder != nil { recordingFrame(dtMs) } else { liveFrame(dtMs) }
         frames.add()
     }
@@ -107,7 +158,7 @@ final class SimulationModel {
     /// Wall-clock pacing: Life and Physarum each follow their own clock.
     private func liveFrame(_ dtMs: Double) {
         lifeClock.hz = settings.lifeHz
-        if settings.playing {
+        if settings.playing && source == .life {
             for _ in 0..<lifeClock.advance(dtMs) { lifeTick() }
         } else {
             lifeClock.reset()
@@ -123,7 +174,7 @@ final class SimulationModel {
         var steps = physClock.advance(dtMs)
         while steps > 0 && !recorder.isBusy {
             steps -= 1
-            if settings.playing && recordingLifeTicker.step(stepsPerTick: stepsPerLifeTick) {
+            if settings.playing && source == .life && recordingLifeTicker.step(stepsPerTick: stepsPerLifeTick) {
                 apply(life.tickNow(spawn: spawnSettings, maxActors: settings.poolSize))
             }
             physStep()
@@ -163,7 +214,7 @@ final class SimulationModel {
         }
         guard update.sequence > lastLifeSequence else { return }
         lastLifeSequence = update.sequence
-        compositor.setLife(update.texels)
+        if source == .life { compositor.setLife(update.texels) }
         organismCount = update.organismCount
         readouts.organisms = organismCount
     }
@@ -207,6 +258,7 @@ final class SimulationModel {
     }
 
     func step() {
+        guard source == .life else { return }
         lifeTick()
     }
 
@@ -219,6 +271,7 @@ final class SimulationModel {
     /// mode (so a drag can keep painting it), nil for patterns.
     @discardableResult
     func click(_ cell: Cell) -> Bool? {
+        guard source == .life else { return nil }
         switch tool {
         case .pattern(let pattern):
             let turns = quarterTurns
@@ -231,7 +284,7 @@ final class SimulationModel {
 
     /// Paints `cell` to `alive` while dragging in paint mode.
     func paint(_ cells: [Cell], alive: Bool) {
-        guard case .paint = tool else { return }
+        guard case .paint = tool, source == .life else { return }
         editWorld { $0.setCells(cells, alive: alive) }
     }
 
@@ -242,7 +295,7 @@ final class SimulationModel {
     }
 
     private func refreshGhost() {
-        let cells = hover.map { ghostCells(tool.pattern, quarterTurns: quarterTurns, anchor: $0, gridSize: settings.lifeSize) } ?? []
+        let cells = source == .camera ? [] : hover.map { ghostCells(tool.pattern, quarterTurns: quarterTurns, anchor: $0, gridSize: settings.lifeSize) } ?? []
         compositor.setGhost(ghostTexels(cells, gridSize: settings.lifeSize))
     }
 
@@ -320,9 +373,74 @@ final class SimulationModel {
         }
     }
 
+    // MARK: Camera
+
+    /// Switches what releases actors. Starting the camera asks for permission the
+    /// first time; if it can't start, the source stays Life and a notice explains why.
+    func setSource(_ newSource: SeedSource) async {
+        guard newSource != source, !isStartingCamera else { return }
+        switch newSource {
+        case .camera:
+            await startCamera()
+        case .life:
+            camera?.stop()
+            activeCamera = nil
+            source = .life
+            movingCells = 0
+            life.edit { _ in } // Shows the Life board again.
+        }
+        refreshGhost()
+    }
+
+    func refreshCameraDevices() {
+        cameraDevices = CameraSource.devices()
+    }
+
+    private func cameraDevicesChanged(disconnected id: String?) {
+        refreshCameraDevices()
+        guard let id, source == .camera, let active = activeCamera, active.id == id else { return }
+        Task { await setSource(.life) }
+        notice = Notice(title: "“\(active.name)” was disconnected", message: "Actors are coming from Life again.")
+    }
+
+    private func startCamera() async {
+        isStartingCamera = true
+        defer { isStartingCamera = false }
+        let camera = camera ?? CameraSource(config: cameraConfig, seed: params.rngSeed) { [weak self] update in
+            self?.receive(update)
+        }
+        self.camera = camera
+        do {
+            activeCamera = try await camera.start(deviceID: cameraSettings.deviceID)
+            source = .camera
+            scheduler.clear()
+        } catch {
+            notice = Notice(title: "Couldn’t use the camera", message: error.localizedDescription)
+        }
+        refreshCameraDevices()
+        refreshGhost()
+    }
+
+    private var cameraConfig: CameraConfig {
+        CameraConfig(gridSize: settings.lifeSize, mirrored: cameraSettings.mirrored, threshold: Float(cameraSettings.motionThreshold),
+                     colors: cameraSettings.colors,
+                     spawn: spawnSettings, maxActors: settings.poolSize, seeding: settings.playing)
+    }
+
+    /// Takes in a processed camera frame: its image, and its spawns and food.
+    private func receive(_ update: CameraUpdate) {
+        guard source == .camera, update.gridSize == compositor.gridSize else { return }
+        // Frames arrive about as often as Physarum steps, so each frame's spawns go on the next step.
+        scheduler.enqueue(update.actors, stepsUntilNextTick: 1)
+        pendingSeeds.append(contentsOf: update.seeds)
+        compositor.setLife(update.texels)
+        movingCells = update.movingCells
+    }
+
     // MARK: Remembered settings
 
     private static let savedSettingsKey = "LastSessionSettings"
+    private static let cameraSettingsKey = "CameraSettings"
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
 
     /// Restores the last session's settings (as a settings file) from `defaults`,
@@ -331,6 +449,10 @@ final class SimulationModel {
         if let data = defaults.data(forKey: Self.savedSettingsKey) {
             loadSettings(from: data, name: "last session’s settings")
             notice = nil // Settings from an older version just fall back to defaults.
+        }
+        if let data = defaults.data(forKey: Self.cameraSettingsKey),
+           let saved = try? JSONDecoder().decode(CameraSettings.self, from: data) {
+            cameraSettings = saved
         }
         nonisolated(unsafe) let defaults = defaults // UserDefaults is thread-safe
         terminationObserver = NotificationCenter.default.addObserver(
@@ -342,6 +464,7 @@ final class SimulationModel {
 
     func saveSettings(to defaults: UserDefaults) {
         if let data = try? settingsFileData() { defaults.set(data, forKey: Self.savedSettingsKey) }
+        if let data = try? JSONEncoder().encode(cameraSettings) { defaults.set(data, forKey: Self.cameraSettingsKey) }
     }
 
     // MARK: Export
@@ -423,6 +546,7 @@ final class SimulationModel {
             alive: Int(counters.aliveCount),
             organisms: organismCount,
             lifeInsertsPerSec: lifeInserts.sample(nowMs: now),
-            childInsertsPerSec: childInserts.sample(nowMs: now))
+            childInsertsPerSec: childInserts.sample(nowMs: now),
+            movingCells: movingCells)
     }
 }

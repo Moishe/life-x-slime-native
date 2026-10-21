@@ -56,12 +56,20 @@ struct StatusBar: View {
     @ViewBuilder
     private func counts(_ r: Readouts) -> some View {
         item(r.alive.formatted(), "actors", help: "Physarum actors alive")
-        item(r.organisms.formatted(), r.organisms == 1 ? "organism" : "organisms", help: "Life organisms (clusters of cells)")
+        if model.source == .camera {
+            item(r.movingCells.formatted(), r.movingCells == 1 ? "moving cell" : "moving cells", help: "Cells whose image changed in the last camera frame")
+        } else {
+            item(r.organisms.formatted(), r.organisms == 1 ? "organism" : "organisms", help: "Life organisms (clusters of cells)")
+        }
     }
 
     @ViewBuilder
     private func inserts(_ r: Readouts) -> some View {
-        item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from Life", help: "Actors spawned by Life births per second")
+        if model.source == .camera {
+            item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from camera", help: "Actors spawned by camera motion per second")
+        } else {
+            item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from Life", help: "Actors spawned by Life births per second")
+        }
         item("+\(Int(r.childInsertsPerSec.rounded()).formatted())/s", "from children", help: "Actors added by reproduction per second")
     }
 

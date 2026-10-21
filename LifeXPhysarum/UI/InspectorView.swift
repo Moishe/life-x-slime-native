@@ -6,6 +6,7 @@ struct InspectorView: View {
 
     @AppStorage("section.layers") private var layersOpen = true
     @AppStorage("section.life") private var lifeOpen = true
+    @AppStorage("section.camera") private var cameraOpen = true
     @AppStorage("section.bridge") private var bridgeOpen = true
     @AppStorage("section.sensing") private var sensingOpen = true
     @AppStorage("section.movement") private var movementOpen = true
@@ -22,6 +23,7 @@ struct InspectorView: View {
         Form {
             layers
             life
+            camera
             bridge
             sensing
             movement
@@ -46,8 +48,10 @@ struct InspectorView: View {
             .help("Show the pheromone trail, or the food left where Life cells died (T)")
             ParameterSlider(title: "Physarum Opacity", value: $model.settings.physarumOpacity, range: 0...1, step: 0.01,
                             defaultValue: defaults.physarumOpacity, key: "physarumOpacity", help: "How strongly the Physarum layer shows")
-            ParameterSlider(title: "Life Opacity", value: $model.settings.lifeOpacity, range: 0...1, step: 0.01,
-                            defaultValue: defaults.lifeOpacity, key: "lifeOpacity", help: "How strongly the Life cells show over the Physarum layer")
+            ParameterSlider(title: model.source == .camera ? "Camera Opacity" : "Life Opacity", value: $model.settings.lifeOpacity,
+                            range: 0...1, step: 0.01, defaultValue: defaults.lifeOpacity, key: "lifeOpacity",
+                            help: model.source == .camera ? "How strongly the camera image shows over the Physarum layer"
+                                                          : "How strongly the Life cells show over the Physarum layer")
         }
     }
 
@@ -58,7 +62,8 @@ struct InspectorView: View {
                     Text("\(size) × \(size)").tag(size)
                 }
             }
-            .help("Cells per side. Changing it starts an empty board and clears the food map")
+            .help("Cells per side, and the camera’s resolution in Camera mode. Changing it starts an empty board and clears the food map")
+            Group {
             ParameterSlider(title: "Tick Rate", value: $model.settings.lifeHz, range: 0.25...8, step: 0.25,
                             defaultValue: defaults.lifeHz, unit: "Hz", key: "lifeHz", help: "Life generations per second")
             ParameterSlider(title: "Fill Density", value: $model.settings.randomDensity, range: 0...1, step: 0.01,
@@ -67,13 +72,40 @@ struct InspectorView: View {
                 Button("Random Fill", action: model.randomFill)
                 Button("Clear Board", action: model.clearBoard)
             }
+            }
+            .disabled(model.source == .camera)
         }
+    }
+
+    private var camera: some View {
+        Section("Camera", isExpanded: $cameraOpen) {
+            Picker("Camera", selection: $model.cameraSettings.deviceID) {
+                Text("Default").tag(String?.none)
+                ForEach(model.cameraDevices) { device in
+                    Text(device.name).tag(Optional(device.id))
+                }
+            }
+            .help("Which camera to use in Camera mode")
+            Picker("Colors", selection: $model.cameraSettings.colors) {
+                Text("Vivid").tag(CameraColors.vivid)
+                Text("True").tag(CameraColors.trueColor)
+            }
+            .pickerStyle(.segmented)
+            .help("Vivid: the scene’s hues at full strength, which actors tell apart easily. True: the camera’s own colors, more faithful but muddier")
+            Toggle("Mirror", isOn: $model.cameraSettings.mirrored)
+                .help("Flip the image left to right, so the field moves like a mirror")
+            ParameterSlider(title: "Motion Threshold", value: $model.cameraSettings.motionThreshold, range: 0.01...0.5, step: 0.01,
+                            defaultValue: CameraSettings().motionThreshold,
+                            help: "How much a cell’s brightness must change between frames to release actors. Raise it if a still scene sparkles")
+        }
+        .onAppear(perform: model.refreshCameraDevices)
     }
 
     private var bridge: some View {
         Section("Bridge", isExpanded: $bridgeOpen) {
             ParameterSlider(title: "Actors per Birth", value: $model.settings.actorsPerBirth, range: 0...256,
-                            defaultValue: defaults.actorsPerBirth, key: "actorsPerBirth", help: "Physarum actors spawned in each newborn Life cell's block")
+                            defaultValue: defaults.actorsPerBirth, key: "actorsPerBirth",
+                            help: "Physarum actors spawned in each newborn Life cell's block, or each moving cell in Camera mode")
             Picker("Spawn Mode", selection: $model.settings.spawnMode) {
                 Text("Burst").tag(SpawnMode.burst)
                 Text("Trickle").tag(SpawnMode.trickle)

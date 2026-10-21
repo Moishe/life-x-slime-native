@@ -171,6 +171,15 @@ private extension AppSettings {
         #expect(second.notice == nil)
     }
 
+    @Test func cameraSettingsSavedBeforeColorsExistedStillLoad() throws {
+        let old = Data(#"{"mirrored":false,"motionThreshold":0.2}"#.utf8)
+        let settings = try JSONDecoder().decode(CameraSettings.self, from: old)
+        var expected = CameraSettings()
+        expected.mirrored = false
+        expected.motionThreshold = 0.2
+        #expect(settings == expected && settings.colors == .vivid)
+    }
+
     @Test func startsFromDefaultsWhenNothingIsSaved() throws {
         let suite = "LifeXPhysarumTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
