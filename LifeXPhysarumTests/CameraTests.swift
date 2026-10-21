@@ -65,6 +65,66 @@ import Testing
     }
 }
 
+@Suite struct EdgeDetectorTests {
+    let dark = SIMD3<UInt8>(20, 20, 20)
+    let green = SIMD3<UInt8>(60, 170, 60)
+
+    /// A 6 × 6 frame: columns before `split` dark, the rest `right`.
+    func split(_ right: SIMD3<UInt8>, at split: Int = 3) -> CameraFrame {
+        var rgba = [UInt8](repeating: 255, count: 6 * 6 * 4)
+        for i in 0..<36 {
+            let c = i % 6 < split ? dark : right
+            rgba[i * 4] = c.x; rgba[i * 4 + 1] = c.y; rgba[i * 4 + 2] = c.z
+        }
+        return CameraFrame(size: 6, rgba: rgba)
+    }
+
+    func columns(_ cells: [SeedCell]) -> Set<Int> { Set(cells.map(\.x)) }
+
+    @Test func aPlainFrameHasNoEdges() {
+        let detector = EdgeDetector(threshold: 0.1)
+        let result = detector.process(split(dark))
+        #expect(result.births.isEmpty && result.deaths.isEmpty && result.movingCells == 0)
+    }
+
+    @Test func cellsOnAnEdgeAreBornFromTheFirstFrameInTheirHue() throws {
+        let detector = EdgeDetector(threshold: 0.1)
+        let result = detector.process(split(green))
+        #expect(columns(result.births) == [2, 3] && result.births.count == 12 && result.movingCells == 12)
+        let greenSide = try #require(result.births.first { $0.x == 3 })
+        #expect(abs(greenSide.color.x) < 0.01 && abs(greenSide.color.y - 1) < 0.01 && abs(greenSide.color.z) < 0.01)
+    }
+
+    @Test func aStillEdgeKeepsBeingBorn() {
+        let detector = EdgeDetector(threshold: 0.1)
+        _ = detector.process(split(green))
+        let again = detector.process(split(green))
+        #expect(again.births.count == 12 && again.deaths.isEmpty)
+    }
+
+    @Test func faintEdgesAreIgnored() {
+        let detector = EdgeDetector(threshold: 0.1)
+        #expect(detector.process(split(SIMD3(30, 30, 30))).births.isEmpty)
+    }
+
+    @Test func anEdgeThatGoesAwayDiesOnceInItsBirthColor() {
+        let detector = EdgeDetector(threshold: 0.1)
+        let edge = detector.process(split(green))
+        let gone = detector.process(split(dark))
+        #expect(gone.births.isEmpty)
+        #expect(Set(gone.deaths.map { [$0.x, $0.y] }) == Set(edge.births.map { [$0.x, $0.y] }))
+        #expect(gone.deaths.allSatisfy { d in edge.births.contains(d) })
+        #expect(detector.process(split(dark)).deaths.isEmpty)
+    }
+
+    @Test func aMovedEdgeDiesWhereItWasAndIsBornWhereItIs() {
+        let detector = EdgeDetector(threshold: 0.1)
+        _ = detector.process(split(green, at: 3))
+        let moved = detector.process(split(green, at: 4))
+        #expect(columns(moved.births) == [3, 4] && columns(moved.deaths) == [2])
+    }
+}
+
 @Suite struct CameraFrameTests {
     /// A BGRA pixel buffer `width` wide and 2 high, colored column by column.
     func buffer(_ columns: [SIMD3<UInt8>]) throws -> CVPixelBuffer {
@@ -134,6 +194,30 @@ import Testing
         #expect(paused.actors.isEmpty && paused.seeds.isEmpty && paused.movingCells == 1)
         config.seeding = true
         // The paused motion is already in the baseline, so resuming doesn't replay it.
+        #expect(processor.process(moved, config).actors.isEmpty)
+    }
+
+    @Test func inEdgesModeAStillSceneKeepsSpawning() {
+        let processor = CameraProcessor(seed: 1)
+        var config = CameraConfig(gridSize: 4, mirrored: true, threshold: 0.1, colors: .vivid, spawn: spawn, maxActors: 1000, seeding: true)
+        config.trigger = .edges
+        config.edgeThreshold = 0.1
+        let (_, moved) = frames()
+        let first = processor.process(moved, config)
+        let second = processor.process(moved, config)
+        #expect(!first.actors.isEmpty && second.actors.count == first.actors.count)
+        #expect(second.movingCells == first.movingCells && first.movingCells > 0)
+    }
+
+    @Test func switchingBackToMotionStartsANewBaseline() {
+        let processor = CameraProcessor(seed: 1)
+        var config = CameraConfig(gridSize: 4, mirrored: true, threshold: 0.1, colors: .vivid, spawn: spawn, maxActors: 1000, seeding: true)
+        let (still, moved) = frames()
+        _ = processor.process(still, config)
+        config.trigger = .edges
+        _ = processor.process(moved, config)
+        config.trigger = .motion
+        // The last motion frame was `still`, but the change happened while edges were in use.
         #expect(processor.process(moved, config).actors.isEmpty)
     }
 }

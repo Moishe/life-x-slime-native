@@ -204,7 +204,7 @@ import Testing
         var expected = CameraSettings()
         expected.mirrored = false
         expected.motionThreshold = 0.2
-        #expect(settings == expected && settings.colors == .vivid)
+        #expect(settings == expected && settings.colors == .vivid && settings.trigger == .motion)
     }
 
     @Test func startsFromDefaultsWhenNothingIsSaved() throws {

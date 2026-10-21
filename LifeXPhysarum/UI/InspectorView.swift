@@ -104,9 +104,21 @@ struct InspectorView: View {
             .help("Vivid: the scene’s hues at full strength, which actors tell apart easily. True: the camera’s own colors, more faithful but muddier")
             Toggle("Mirror", isOn: $model.cameraSettings.mirrored)
                 .help("Flip the image left to right, so the field moves like a mirror")
-            ParameterSlider(title: "Motion Threshold", value: $model.cameraSettings.motionThreshold, range: 0.01...0.5, step: 0.01,
-                            defaultValue: CameraSettings().motionThreshold,
-                            help: "How much a cell’s brightness must change between frames to release actors. Raise it if a still scene sparkles")
+            Picker("Spawn From", selection: $model.cameraSettings.trigger) {
+                Text("Motion").tag(CameraTrigger.motion)
+                Text("Edges").tag(CameraTrigger.edges)
+            }
+            .pickerStyle(.segmented)
+            .help("Motion: cells whose image changes release actors. Edges: cells on an edge in the image release actors every frame, even in a still scene")
+            if model.cameraSettings.trigger == .motion {
+                ParameterSlider(title: "Motion Threshold", value: $model.cameraSettings.motionThreshold, range: 0.01...0.5, step: 0.01,
+                                defaultValue: CameraSettings().motionThreshold,
+                                help: "How much a cell’s brightness must change between frames to release actors. Raise it if a still scene sparkles")
+            } else {
+                ParameterSlider(title: "Edge Threshold", value: $model.cameraSettings.edgeThreshold, range: 0.02...1, step: 0.01,
+                                defaultValue: CameraSettings().edgeThreshold,
+                                help: "How sharply brightness must change across a cell for it to be an edge. Raise it to keep only the strongest outlines")
+            }
         }
         .onAppear(perform: model.refreshCameraDevices)
     }

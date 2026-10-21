@@ -2,12 +2,15 @@
 nonisolated struct CameraConfig: Sendable {
     var gridSize: Int
     var mirrored: Bool
+    /// The motion threshold.
     var threshold: Float
     var colors: CameraColors
     var spawn: SpawnSettings
     var maxActors: Int
     /// False while paused: motion is still tracked, but spawns nothing.
     var seeding: Bool
+    var trigger = CameraTrigger.motion
+    var edgeThreshold: Float = 0.2
 }
 
 /// One processed camera frame, for the main actor.
@@ -24,16 +27,32 @@ nonisolated struct CameraUpdate: Sendable {
 /// ticks. Not thread-safe: the camera's queue owns it.
 nonisolated final class CameraProcessor {
     private let detector = MotionDetector(threshold: 0.1)
+    private let edgeDetector = EdgeDetector(threshold: 0.2)
     private let rng: Rng
+    private var trigger = CameraTrigger.motion
 
     init(seed: Int) {
         rng = mulberry32(seed)
     }
 
     func process(_ frame: CameraFrame, _ config: CameraConfig) -> CameraUpdate {
-        detector.threshold = config.threshold
-        detector.colors = config.colors
-        let motion = detector.process(frame)
+        if config.trigger != trigger {
+            trigger = config.trigger
+            // Frames went to the other detector meanwhile, so each one's last frame is stale.
+            detector.reset()
+            edgeDetector.reset()
+        }
+        let motion: MotionResult
+        switch config.trigger {
+        case .motion:
+            detector.threshold = config.threshold
+            detector.colors = config.colors
+            motion = detector.process(frame)
+        case .edges:
+            edgeDetector.threshold = config.edgeThreshold
+            edgeDetector.colors = config.colors
+            motion = edgeDetector.process(frame)
+        }
         var update = CameraUpdate(gridSize: frame.size, texels: frame.rgba, movingCells: motion.movingCells)
         if config.seeding {
             update.actors = birthsToActors(motion.births, config.spawn, rng: rng, maxActors: config.maxActors)

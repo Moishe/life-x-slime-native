@@ -28,6 +28,10 @@ struct CameraSettings: Codable, Equatable {
     /// How much a cell's brightness must change between frames to count as motion (0–1).
     var motionThreshold = 0.08
     var colors = CameraColors.vivid
+    /// Whether motion or edges release actors.
+    var trigger = CameraTrigger.motion
+    /// How sharp a brightness change across a cell must be to count as an edge (0–1).
+    var edgeThreshold = 0.2
 
     init() {}
 
@@ -39,6 +43,8 @@ struct CameraSettings: Codable, Equatable {
         mirrored = try c.decodeIfPresent(Bool.self, forKey: .mirrored) ?? defaults.mirrored
         motionThreshold = try c.decodeIfPresent(Double.self, forKey: .motionThreshold) ?? defaults.motionThreshold
         colors = try c.decodeIfPresent(CameraColors.self, forKey: .colors) ?? defaults.colors
+        trigger = try c.decodeIfPresent(CameraTrigger.self, forKey: .trigger) ?? defaults.trigger
+        edgeThreshold = try c.decodeIfPresent(Double.self, forKey: .edgeThreshold) ?? defaults.edgeThreshold
     }
 }
 
@@ -433,7 +439,8 @@ final class SimulationModel {
     private var cameraConfig: CameraConfig {
         CameraConfig(gridSize: settings.lifeSize, mirrored: cameraSettings.mirrored, threshold: Float(cameraSettings.motionThreshold),
                      colors: cameraSettings.colors,
-                     spawn: spawnSettings, maxActors: settings.poolSize, seeding: settings.playing)
+                     spawn: spawnSettings, maxActors: settings.poolSize, seeding: settings.playing,
+                     trigger: cameraSettings.trigger, edgeThreshold: Float(cameraSettings.edgeThreshold))
     }
 
     /// Takes in a processed camera frame: its image, and its spawns and food.

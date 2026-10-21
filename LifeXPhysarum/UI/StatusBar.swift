@@ -57,7 +57,11 @@ struct StatusBar: View {
     private func counts(_ r: Readouts) -> some View {
         item(r.alive.formatted(), "actors", help: "Physarum actors alive")
         if model.source == .camera {
-            item(r.movingCells.formatted(), r.movingCells == 1 ? "moving cell" : "moving cells", help: "Cells whose image changed in the last camera frame")
+            if model.cameraSettings.trigger == .edges {
+                item(r.movingCells.formatted(), r.movingCells == 1 ? "edge cell" : "edge cells", help: "Cells on an edge in the last camera frame")
+            } else {
+                item(r.movingCells.formatted(), r.movingCells == 1 ? "moving cell" : "moving cells", help: "Cells whose image changed in the last camera frame")
+            }
         } else {
             item(r.organisms.formatted(), r.organisms == 1 ? "organism" : "organisms", help: "Life organisms (clusters of cells)")
         }
@@ -66,7 +70,7 @@ struct StatusBar: View {
     @ViewBuilder
     private func inserts(_ r: Readouts) -> some View {
         if model.source == .camera {
-            item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from camera", help: "Actors spawned by camera motion per second")
+            item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from camera", help: "Actors spawned by the camera’s motion or edges per second")
         } else {
             item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from Life", help: "Actors spawned by Life births per second")
         }
