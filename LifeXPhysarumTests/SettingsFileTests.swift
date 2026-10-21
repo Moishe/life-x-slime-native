@@ -21,7 +21,7 @@ import Testing
         #expect(settings["palette"] as? String == "rainbow" && settings["colorCount"] as? Int == 8)
         #expect(settings["spawnMode"] as? String == "trickle")
         let physarum = json["physarum"] as! [String: Any]
-        #expect(physarum.count == 31)
+        #expect(physarum.count == 32)
         #expect(physarum["minValue"] as? Double == 0 && physarum["crowdingLimit"] as? Int == 0)
         #expect(physarum["spawnWithSeedColor"] as? Bool == false)
         #expect(physarum["lookRadians"] as? Double == 1.31)
@@ -50,6 +50,7 @@ import Testing
         p.minValue = 0.25
         p.crowdingLimit = 9
         p.spawnWithSeedColor = true
+        p.fadeInterval = 4
         let loaded = try SettingsFile.parse(SettingsFile.serialize(s, p), poolSizes: poolSizes)
         #expect(loaded.warnings.isEmpty)
         #expect(loaded.applied(to: AppSettings()) == s)
@@ -144,6 +145,15 @@ import Testing
         #expect(loaded.warnings.isEmpty)
         #expect(loaded.settingKeys.count == 8 && loaded.physarumKeys.count == 28)
         #expect(loaded.applied(to: PhysarumParams()) == PhysarumParams())
+    }
+
+    @Test func fadesOnTheBlurIntervalWhenAFileHasNoFadeInterval() throws {
+        // The web version fades the trail only on blur steps.
+        let web = try SettingsFile.parse(file([:], ["blurInterval": 3]), poolSizes: poolSizes)
+        #expect(web.applied(to: PhysarumParams()).fadeInterval == 3)
+        let native = try SettingsFile.parse(file([:], ["blurInterval": 3, "fadeInterval": 5]), poolSizes: poolSizes)
+        #expect(native.applied(to: PhysarumParams()).fadeInterval == 5)
+        #expect(web.warnings.isEmpty && native.warnings.isEmpty)
     }
 
     @Test func readsTheWebVersionsPaletteAndNewParameters() throws {

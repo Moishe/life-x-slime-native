@@ -114,9 +114,13 @@ final class PhysarumSim {
         if p.crowdingLimit > 0 { reset.fill(buffer: density, range: 0..<density.length, value: 0) }
         reset.endEncoding()
 
-        let diffuse = stepIndex % max(1, p.blurInterval) == 0
+        // Blur and fade each have their own interval; one pass does whichever are due.
+        let blur = stepIndex % max(1, p.blurInterval) == 0
+        let fadeTrail = stepIndex % max(1, p.fadeInterval) == 0
+        let diffuse = blur || fadeTrail
         if diffuse {
-            let fade = FadeParams(decrement: Float(p.fadeDecrement), blurMultiplier: Float(p.blurMultiplier), pad0: 0, pad1: 0)
+            let fade = FadeParams(decrement: fadeTrail ? Float(p.fadeDecrement) : 0,
+                                  blurMultiplier: blur ? Float(p.blurMultiplier) : 0, pad0: 0, pad1: 0)
             passes.encodeDiffuse(commandBuffer, fade: fade, source: trailA, target: trailB)
         }
         let current = diffuse ? trailB : trailA

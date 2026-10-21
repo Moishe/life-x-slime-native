@@ -208,7 +208,7 @@ private extension Double {
         #expect(s.poolSize == 1_048_576 && s.lifeSize == 64)
         #expect(s.palette == "rainbow" && s.colorCount == 8)
         let p = PhysarumParams()
-        #expect(p.minValue == 0 && p.crowdingLimit == 0 && !p.spawnWithSeedColor)
+        #expect(p.minValue == 0 && p.crowdingLimit == 0 && !p.spawnWithSeedColor && p.fadeInterval == 1)
     }
 }
 

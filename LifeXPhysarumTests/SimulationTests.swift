@@ -146,9 +146,29 @@ private func redSeed(_ x: UInt32, _ y: UInt32) -> FoodSeed {
         #expect(readTexture(sim.foodTexture).pixel(3, 3) == [0, 0, 0, 0])
     }
 
-    @Test func diffusesAndSwapsOnlyEveryBlurIntervalSteps() throws {
+    @Test func blursOnlyEveryBlurIntervalStepsIndependentlyOfFading() throws {
         let sim = makeSim()
         sim.params.blurInterval = 2
+        sim.params.blurMultiplier = 1
+        sim.params.fadeDecrement = 0
+        var trail = solidTexels(W, W, [0, 0, 0, 255])
+        setPixel(&trail, W, 20, 20, [255, 255, 255, 255])
+        write(sim.trail, trail)
+        var centers: [Int] = []
+        for _ in 0..<3 {
+            try sim.step(spawns: [], seeds: [])
+            sim.readCounters()
+            centers.append(Int(readTexture(sim.trail).pixel(20, 20)[0]))
+        }
+        // (255 + 255) / 10 after step 0; unchanged on step 1; blurred again on step 2.
+        #expect(abs(centers[0] - 51) <= 1)
+        #expect(centers[1] == centers[0])
+        #expect(centers[2] < centers[1])
+    }
+
+    @Test func fadesTheTrailOnlyEveryFadeIntervalSteps() throws {
+        let sim = makeSim()
+        sim.params.fadeInterval = 2
         sim.params.fadeDecrement = 0.1
         // A pixel away from the actor, so only fading (never deposit) can change it.
         var trail = solidTexels(W, W, [0, 0, 0, 255])

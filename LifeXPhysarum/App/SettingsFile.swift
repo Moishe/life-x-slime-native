@@ -68,6 +68,14 @@ enum SettingsFile {
         loaded.settings = readSection(settings, fields: settingsFields, warnings: &loaded.warnings)
         loaded.physarum = readSection(physarum, fields: physarumFields, warnings: &loaded.warnings)
 
+        // Files without fadeInterval (the web version's) fade only on blur steps.
+        if physarum["fadeInterval"] == nil, let i = loaded.physarum.firstIndex(where: { $0.key == "blurInterval" }) {
+            let applyBlur = loaded.physarum[i].apply
+            loaded.physarum[i].apply = { p in
+                applyBlur(&p)
+                p.fadeInterval = p.blurInterval
+            }
+        }
         if let i = loaded.settings.firstIndex(where: { $0.key == "lifeSize" }),
            let size = (settings["lifeSize"] as? NSNumber)?.intValue, !lifeSizes.contains(size) {
             let sizes = lifeSizes.map(String.init).joined(separator: ", ")
@@ -150,6 +158,7 @@ enum SettingsFile {
         number("fadeDecrement", \.fadeDecrement),
         number("blurMultiplier", \.blurMultiplier),
         integer("blurInterval", \.blurInterval),
+        integer("fadeInterval", \.fadeInterval),
         number("foodFadeDecrement", \.foodFadeDecrement),
         integer("foodFadeInterval", \.foodFadeInterval),
         bool("wrapBounds", \.wrapBounds),

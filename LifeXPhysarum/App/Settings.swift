@@ -62,6 +62,9 @@ struct PhysarumParams: Equatable, Codable {
     var fadeDecrement = 0.001
     var blurMultiplier = 10.6
     var blurInterval = 1
+    /// Fade the trail every this many steps, independently of blurring. Not in
+    /// the web version, which fades only on blur steps.
+    var fadeInterval = 1
     var foodFadeDecrement = 0.002
     var foodFadeInterval = 1
     var wrapBounds = true

@@ -90,6 +90,9 @@ fixes to Particles. Differences:
 - **Births are shuffled before spawning.** Births come in row order; when more are born than
   can be spawned (big boards), the web version keeps the last ones, so actors only appear
   along the bottom edge. Shuffling makes whatever is kept a uniform sample of the board.
+- **The trail fades on its own interval** (`fadeInterval`, Fade Every), not only on blur
+  steps, so it can fade more slowly than the 8-bit trail's smallest step allows. Settings
+  files without it (the web version's) fade on the blur interval, as before.
 - **Camera mode is native only.** The web version has no camera, so camera options are
   remembered by the app but not written to settings files.
 - **Slow ticks are skipped,** not queued: a board that takes longer than the tick interval

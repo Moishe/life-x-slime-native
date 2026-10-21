@@ -187,11 +187,14 @@ struct InspectorView: View {
     private var fade: some View {
         Section("Fade", isExpanded: $fadeOpen) {
             ParameterSlider(title: "Trail Fade", value: $model.params.fadeDecrement, range: 0...0.1, step: 0.001,
-                            defaultValue: defaultParams.fadeDecrement, key: "fadeDecrement", help: "Subtracted from the trail on each blur step")
+                            defaultValue: defaultParams.fadeDecrement, key: "fadeDecrement", help: "Subtracted from the trail on each fade step. The trail has 256 levels, so values under about 0.002 don't fade it; use Fade Every to fade more slowly")
             ParameterSlider(title: "Blur Center Weight", value: $model.params.blurMultiplier, range: 0...16, step: 0.1,
                             defaultValue: defaultParams.blurMultiplier, key: "blurMultiplier", help: "Weight of each pixel against its 8 neighbors when blurring (0 = no blur)")
             ParameterSlider(title: "Blur Every", value: $model.params.blurInterval, range: 1...10,
-                            defaultValue: defaultParams.blurInterval, unit: "steps", key: "blurInterval", help: "Blur and fade the trail every this many steps")
+                            defaultValue: defaultParams.blurInterval, unit: "steps", key: "blurInterval", help: "Blur the trail every this many steps")
+            ParameterSlider(title: "Fade Every", value: $model.params.fadeInterval, range: 1...100,
+                            defaultValue: defaultParams.fadeInterval, unit: "steps", key: "fadeInterval",
+                            help: "Fade the trail every this many steps, for trails that last longer")
             ParameterSlider(title: "Food Fade", value: $model.params.foodFadeDecrement, range: 0...0.1, step: 0.0005,
                             defaultValue: defaultParams.foodFadeDecrement, key: "foodFadeDecrement", help: "Subtracted from the food map on each food fade step")
             ParameterSlider(title: "Food Fade Every", value: $model.params.foodFadeInterval, range: 1...10,
