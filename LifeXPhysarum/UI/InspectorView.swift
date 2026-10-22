@@ -72,18 +72,21 @@ struct InspectorView: View {
                 Button("Random Fill", action: model.randomFill)
                 Button("Clear Board", action: model.clearBoard)
             }
+            }
+            .disabled(model.source == .camera)
+            Group {
             Picker("Palette", selection: $model.settings.palette) {
                 ForEach(palettes) { palette in
                     Text(palette.title).tag(palette.name)
                 }
             }
-            .help("The colors organisms wear, and so the colors of the actors they release and the food they leave\npalette")
+            .help("The colors organisms wear, and so the colors of the actors they release and the food they leave. With the camera’s Colors set to Palette, the colors camera cells are matched to\npalette")
             ParameterSlider(title: "Color Count", value: $model.settings.colorCount, range: 1...maxColors,
                             defaultValue: defaults.colorCount, key: "colorCount",
                             help: "How many colors organisms wear. Fewer than the palette has picks evenly among them; more blends between neighbors")
             PaletteSwatch(colors: model.lifeColors)
             }
-            .disabled(model.source == .camera)
+            .disabled(model.source == .camera && model.cameraSettings.colors != .palette)
         }
     }
 
@@ -99,9 +102,10 @@ struct InspectorView: View {
             Picker("Colors", selection: $model.cameraSettings.colors) {
                 Text("Vivid").tag(CameraColors.vivid)
                 Text("True").tag(CameraColors.trueColor)
+                Text("Palette").tag(CameraColors.palette)
             }
             .pickerStyle(.segmented)
-            .help("Vivid: the scene’s hues at full strength, which actors tell apart easily. True: the camera’s own colors, more faithful but muddier")
+            .help("Vivid: the scene’s hues at full strength, which actors tell apart easily. True: the camera’s own colors, more faithful but muddier. Palette: the nearest color in the Life section’s palette")
             Toggle("Mirror", isOn: $model.cameraSettings.mirrored)
                 .help("Flip the image left to right, so the field moves like a mirror")
             Picker("Spawn From", selection: $model.cameraSettings.trigger) {

@@ -438,7 +438,7 @@ final class SimulationModel {
 
     private var cameraConfig: CameraConfig {
         CameraConfig(gridSize: settings.lifeSize, mirrored: cameraSettings.mirrored, threshold: Float(cameraSettings.motionThreshold),
-                     colors: cameraSettings.colors,
+                     colors: cameraSettings.colors, palette: lifeColors,
                      spawn: spawnSettings, maxActors: settings.poolSize, seeding: settings.playing,
                      trigger: cameraSettings.trigger, edgeThreshold: Float(cameraSettings.edgeThreshold))
     }

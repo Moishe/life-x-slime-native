@@ -40,6 +40,15 @@ import Testing
         #expect(birth.color == SIMD3<Float>(60, 170, 60) / 255)
     }
 
+    @Test func paletteColorsTakeTheNearestPaletteColor() throws {
+        let detector = MotionDetector(threshold: 0.1)
+        detector.colors = .palette
+        detector.palette = [SIMD3(1, 0, 0), SIMD3(0.2, 0.6, 0.3), SIMD3(0, 0, 1)]
+        _ = detector.process(frame(4, dark))
+        let birth = try #require(detector.process(frame(4, dark, [6: green])).births.first)
+        #expect(birth.color == SIMD3(0.2, 0.6, 0.3))
+    }
+
     @Test func changesBelowTheThresholdAreIgnored() {
         let detector = MotionDetector(threshold: 0.1)
         _ = detector.process(frame(4, dark))
@@ -93,6 +102,15 @@ import Testing
         #expect(columns(result.births) == [2, 3] && result.births.count == 12 && result.movingCells == 12)
         let greenSide = try #require(result.births.first { $0.x == 3 })
         #expect(abs(greenSide.color.x) < 0.01 && abs(greenSide.color.y - 1) < 0.01 && abs(greenSide.color.z) < 0.01)
+    }
+
+    @Test func paletteColorsTakeTheNearestPaletteColor() {
+        let detector = EdgeDetector(threshold: 0.1)
+        detector.colors = .palette
+        detector.palette = [SIMD3(0.1, 0.1, 0.1), SIMD3(0, 1, 0)]
+        let result = detector.process(split(green))
+        #expect(result.births.filter { $0.x == 2 }.allSatisfy { $0.color == SIMD3(0.1, 0.1, 0.1) })
+        #expect(result.births.filter { $0.x == 3 }.allSatisfy { $0.color == SIMD3(0, 1, 0) })
     }
 
     @Test func aStillEdgeKeepsBeingBorn() {

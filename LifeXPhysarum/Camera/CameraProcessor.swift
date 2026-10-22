@@ -5,6 +5,8 @@ nonisolated struct CameraConfig: Sendable {
     /// The motion threshold.
     var threshold: Float
     var colors: CameraColors
+    /// The Life palette, for `.palette` colors.
+    var palette: [SIMD3<Float>] = []
     var spawn: SpawnSettings
     var maxActors: Int
     /// False while paused: motion is still tracked, but spawns nothing.
@@ -47,10 +49,12 @@ nonisolated final class CameraProcessor {
         case .motion:
             detector.threshold = config.threshold
             detector.colors = config.colors
+            detector.palette = config.palette
             motion = detector.process(frame)
         case .edges:
             edgeDetector.threshold = config.edgeThreshold
             edgeDetector.colors = config.colors
+            edgeDetector.palette = config.palette
             motion = edgeDetector.process(frame)
         }
         var update = CameraUpdate(gridSize: frame.size, texels: frame.rgba, movingCells: motion.movingCells)

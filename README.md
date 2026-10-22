@@ -34,11 +34,13 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   so their actors' and food's) from the web version's palettes: Rainbow, Fairy Floss, Apple
   1980s, Dracula, Solarized, Nord, Synthwave, Sunset and PICO-8. They change live.
 - **Camera:** switch the toolbar's Seed From to Camera and motion in front of the camera
-  releases actors in the scene's colors (Vivid, its hues at full strength, or True), leaving
+  releases actors in the scene's colors (Vivid, its hues at full strength; True; or Palette,
+  the nearest color in the Life section's palette, whose controls stay live), leaving
   food where it stops. With Spawn From set to Edges, the image's edges release actors
   instead, every frame, so a still scene keeps spawning; food is left where an edge moves
-  away. The Camera section also picks the camera, mirrors it and sets the thresholds; Life Opacity becomes Camera Opacity. Frames are processed on the Mac and never
-  saved, except in movies you record.
+  away. The Camera section also picks the camera, mirrors it and sets the thresholds; Life
+  Opacity becomes Camera Opacity. Frames are processed on the Mac and never saved, except in
+  movies you record.
 - **Status bar:** frame rate, Physarum steps per second, live actors, organisms, and actors
   added per second by Life births and by reproduction.
 

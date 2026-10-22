@@ -1,3 +1,5 @@
+import simd
+
 /// A camera image scaled to the Life grid: size × size RGBA, top-left origin.
 nonisolated struct CameraFrame {
     let size: Int
@@ -10,6 +12,8 @@ nonisolated enum CameraColors: String, Codable, CaseIterable, Sendable {
     case vivid
     /// The pixel's own color: faithful, but dull colors weaken actors' hue sensing.
     case trueColor
+    /// The nearest color in the Life palette, so the camera wears the palette's colors.
+    case palette
 }
 
 /// What in the camera image releases actors.
@@ -37,6 +41,8 @@ nonisolated struct MotionResult {
 nonisolated final class MotionDetector {
     var threshold: Float
     var colors = CameraColors.vivid
+    /// The colors `.palette` picks from.
+    var palette: [SIMD3<Float>] = []
     private var size = 0
     private var luma: [Float] = []
     // The color each moving cell was born in; nil where it isn't moving.
@@ -60,7 +66,7 @@ nonisolated final class MotionDetector {
             let changed = abs(l - luma[i]) > threshold
             luma[i] = l
             if changed {
-                let color = cellColor(frame.rgba, i, colors)
+                let color = cellColor(frame.rgba, i, colors, palette)
                 result.births.append(SeedCell(x: i % size, y: i / size, color: color))
                 moving[i] = color
             } else if let color = moving[i] {
@@ -86,6 +92,8 @@ nonisolated final class MotionDetector {
 nonisolated final class EdgeDetector {
     var threshold: Float
     var colors = CameraColors.vivid
+    /// The colors `.palette` picks from.
+    var palette: [SIMD3<Float>] = []
     private var size = 0
     // Each edge cell's color in the last frame; nil where there's no edge.
     private var edges: [SIMD3<Float>?] = []
@@ -110,7 +118,7 @@ nonisolated final class EdgeDetector {
                 let gy = l(x - 1, y + 1) + 2 * l(x, y + 1) + l(x + 1, y + 1) - l(x - 1, y - 1) - 2 * l(x, y - 1) - l(x + 1, y - 1)
                 let i = y * size + x
                 if (gx * gx + gy * gy).squareRoot() / 4 > threshold {
-                    let color = cellColor(frame.rgba, i, colors)
+                    let color = cellColor(frame.rgba, i, colors, palette)
                     result.births.append(SeedCell(x: x, y: y, color: color))
                     edges[i] = color
                 } else if let color = edges[i] {
@@ -133,8 +141,14 @@ private nonisolated func lumaOf(_ rgba: [UInt8], _ i: Int) -> Float {
     (0.2126 * Float(rgba[i * 4]) + 0.7152 * Float(rgba[i * 4 + 1]) + 0.0722 * Float(rgba[i * 4 + 2])) / 255
 }
 
-/// A cell's color for its actors: its hue at full strength (vivid) or as is.
-private nonisolated func cellColor(_ rgba: [UInt8], _ i: Int, _ colors: CameraColors) -> SIMD3<Float> {
+/// A cell's color for its actors: its hue at full strength (vivid), as is, or
+/// the palette color nearest it.
+private nonisolated func cellColor(_ rgba: [UInt8], _ i: Int, _ colors: CameraColors,
+                                   _ palette: [SIMD3<Float>]) -> SIMD3<Float> {
     let rgb = SIMD3(Float(rgba[i * 4]), Float(rgba[i * 4 + 1]), Float(rgba[i * 4 + 2])) / 255
-    return colors == .vivid ? hsv2rgb(SIMD3(rgb2hsv(rgb).x, 1, 1)) : rgb
+    switch colors {
+    case .vivid: return hsv2rgb(SIMD3(rgb2hsv(rgb).x, 1, 1))
+    case .trueColor: return rgb
+    case .palette: return palette.min { simd_distance_squared($0, rgb) < simd_distance_squared($1, rgb) } ?? rgb
+    }
 }

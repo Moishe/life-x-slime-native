@@ -26,7 +26,7 @@ struct HelpView: View {
                     bullet("**Sidebar:** choose Paint Cells (click toggles a cell, drag paints) or a pattern, then click the field to place it.")
                     bullet("**Inspector:** every setting. Hover a control for what it does; right-click to reset it to its default.")
                     bullet("**Status bar:** frame rate, Physarum steps per second, live actors, organisms, and how many actors Life births and reproduction add each second.")
-                    bullet("**Camera:** switch the toolbar from Life to Camera, and motion in front of the camera releases actors in the scene’s colors, leaving food where it stops. Set Spawn From to Edges and the outlines in the image release actors every frame, even when nothing moves. The Camera section also picks the camera, mirrors it and sets the thresholds.")
+                    bullet("**Camera:** switch the toolbar from Life to Camera, and motion in front of the camera releases actors in the scene’s colors (or, with Colors set to Palette, the nearest colors in the Life palette), leaving food where it stops. Set Spawn From to Edges and the outlines in the image release actors every frame, even when nothing moves. The Camera section also picks the camera, mirrors it and sets the thresholds.")
                     bullet("**Settings files** use the web version’s format. Your settings are also remembered between sessions.")
                     bullet("**Export Images** saves the Life layer, the trail and the mix as 2048 × 2048 PNGs. **Record Movie** saves a 2048 × 2048, 30 fps movie with one frame per Physarum step.")
                 }
