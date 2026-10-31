@@ -8,6 +8,7 @@ final class PhysarumPasses {
     private let injectPipeline: MTLComputePipelineState
     private let diffusePipeline: MTLComputePipelineState
     private let depositPipeline: MTLComputePipelineState
+    private let heightPipeline: MTLComputePipelineState
     private let foodSeedPipeline: MTLRenderPipelineState
     private let foodFadePipeline: MTLRenderPipelineState
 
@@ -17,6 +18,7 @@ final class PhysarumPasses {
         injectPipeline = context.computePipeline("inject")
         diffusePipeline = context.computePipeline("diffuse")
         depositPipeline = context.computePipeline("deposit")
+        heightPipeline = context.computePipeline("fold_height")
         foodSeedPipeline = context.renderPipeline("food seed") { d in
             d.vertexFunction = context.function("food_seed_vertex")
             d.fragmentFunction = context.function("food_seed_fragment")
@@ -112,18 +114,36 @@ final class PhysarumPasses {
         encoder.endEncoding()
     }
 
-    /// Writes each alive actor's deposit color into the trail, replacing what was there.
+    /// Writes each alive actor's deposit color into the trail, replacing what was
+    /// there, and adds one per actor to `pile` (a UInt32 per field pixel, which
+    /// the caller zeroes before the step).
     /// (A compute pass: rasterizing a million scattered points is far slower on tile-based GPUs.)
-    func encodeDeposit(_ commandBuffer: MTLCommandBuffer, params: SimParams, actors: MTLBuffer, target: MTLTexture) {
+    func encodeDeposit(_ commandBuffer: MTLCommandBuffer, params: SimParams, actors: MTLBuffer, target: MTLTexture, pile: MTLBuffer) {
         var params = params
         let encoder = commandBuffer.makeComputeCommandEncoder()!
         encoder.label = "deposit"
         encoder.setComputePipelineState(depositPipeline)
         encoder.setBytes(&params, length: MemoryLayout<SimParams>.stride, index: 0)
         encoder.setBuffer(actors, offset: 0, index: 1)
+        encoder.setBuffer(pile, offset: 0, index: 2)
         encoder.setTexture(target, index: 0)
         encoder.dispatchThreads(MTLSize(width: Int(params.poolSize), height: 1, depth: 1),
                                 threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+        encoder.endEncoding()
+    }
+
+    /// Folds a step's pile counts into the persistent, decaying height field
+    /// (one Float per field pixel, row-major).
+    func encodeHeight(_ commandBuffer: MTLCommandBuffer, params: HeightParams, pile: MTLBuffer, height: MTLBuffer) {
+        var params = params
+        let encoder = commandBuffer.makeComputeCommandEncoder()!
+        encoder.label = "height"
+        encoder.setComputePipelineState(heightPipeline)
+        encoder.setBytes(&params, length: MemoryLayout<HeightParams>.stride, index: 0)
+        encoder.setBuffer(pile, offset: 0, index: 1)
+        encoder.setBuffer(height, offset: 0, index: 2)
+        encoder.dispatchThreads(MTLSize(width: Int(params.width), height: Int(params.height), depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
         encoder.endEncoding()
     }
 }

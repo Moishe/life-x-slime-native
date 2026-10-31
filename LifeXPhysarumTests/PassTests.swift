@@ -386,11 +386,78 @@ private func seedPickingOtherParent(_ pool: Int) -> UInt32 {
         let params = SimParams(PhysarumParams(), SimFrame(width: W, height: W, step: 0, poolSize: actors.count, maxChildren: 0, spawnCount: 0))
         let buffer = makeBuffer(actors)
         let target = texture(W, solidTexels(W, W, [10, 10, 10, 255]))
-        run { passes.encodeDeposit($0, params: params, actors: buffer, target: target) }
+        let pile = makeBuffer([UInt32](repeating: 0, count: W * W))
+        run { passes.encodeDeposit($0, params: params, actors: buffer, target: target, pile: pile) }
         let out = readTexture(target)
         #expect(out.pixel(5, 9) == [0, 255, 0, 255])
         #expect(out.pixel(5, 54) == [10, 10, 10, 255]) // would be hit if y were not flipped
         #expect(out.pixel(40, 3) == [10, 10, 10, 255]) // the dead actor drew nothing
         #expect(stride(from: 1, to: out.pixels.count, by: 4).filter { out.pixels[$0] == 255 }.count == 1)
+    }
+
+    @Test func addsOneToThePileForEachAliveActorOnAPixel() {
+        let passes = PhysarumPasses(context: gpu)
+        let actors = [actor(x: 5.2, y: 9.7), actor(x: 5.9, y: 9.1), actor(x: 20.5, y: 30.5), actor(x: 40.5, y: 3.5, alive: false)]
+        let params = SimParams(PhysarumParams(), SimFrame(width: W, height: W, step: 0, poolSize: actors.count, maxChildren: 0, spawnCount: 0))
+        let buffer = makeBuffer(actors)
+        let target = texture(W)
+        var pile = [UInt32](repeating: 0, count: W * W)
+        pile[30 * W + 20] = 4 // already there: the pass adds, the caller zeroes
+        let pileBuffer = makeBuffer(pile)
+        run { passes.encodeDeposit($0, params: params, actors: buffer, target: target, pile: pileBuffer) }
+        let out = read(pileBuffer, as: UInt32.self, count: W * W)
+        #expect(out[9 * W + 5] == 2)
+        #expect(out[30 * W + 20] == 5)
+        #expect(out[3 * W + 40] == 0)
+        #expect(out.reduce(0, +) == 7)
+    }
+}
+
+@Suite(.serialized) struct HeightTests {
+    func runHeight(pile: [UInt32], height: [Float], gain: Float, decay: Float) -> [Float] {
+        let passes = PhysarumPasses(context: gpu)
+        let pileBuffer = makeBuffer(pile)
+        let heightBuffer = makeBuffer(height)
+        let params = HeightParams(gain: gain, decay: decay, width: UInt32(W), height: UInt32(W))
+        run { passes.encodeHeight($0, params: params, pile: pileBuffer, height: heightBuffer) }
+        return read(heightBuffer, as: Float.self, count: W * W)
+    }
+
+    func at(_ x: Int, _ y: Int) -> Int { y * W + x }
+
+    @Test func addsThe3x3MeanOfThePileTimesTheGainToTheHeight() {
+        var pile = [UInt32](repeating: 0, count: W * W)
+        pile[at(10, 10)] = 9
+        let out = runHeight(pile: pile, height: [Float](repeating: 0, count: W * W), gain: 0.1, decay: 0)
+        #expect(isClose(out[at(10, 10)], 0.1, 1e-5))
+        #expect(isClose(out[at(11, 10)], 0.1, 1e-5))
+        #expect(isClose(out[at(9, 11)], 0.1, 1e-5))
+        #expect(out[at(12, 10)] == 0)
+        #expect(out[at(10, 8)] == 0)
+    }
+
+    @Test func decaysTheExistingHeightByTheDecayFraction() {
+        var height = [Float](repeating: 0, count: W * W)
+        height[at(3, 3)] = 0.5
+        let out = runHeight(pile: [UInt32](repeating: 0, count: W * W), height: height, gain: 0.1, decay: 0.2)
+        #expect(isClose(out[at(3, 3)], 0.4, 1e-5))
+    }
+
+    @Test func clampsTheHeightToOne() {
+        var pile = [UInt32](repeating: 0, count: W * W)
+        pile[at(20, 20)] = 90
+        var height = [Float](repeating: 0, count: W * W)
+        height[at(20, 20)] = 0.9
+        let out = runHeight(pile: pile, height: height, gain: 0.1, decay: 0)
+        #expect(out[at(20, 20)] == 1)
+    }
+
+    @Test func treatsPixelsOutsideTheFieldAsEmpty() {
+        var pile = [UInt32](repeating: 0, count: W * W)
+        pile[at(0, 0)] = 9
+        let out = runHeight(pile: pile, height: [Float](repeating: 0, count: W * W), gain: 0.1, decay: 0)
+        #expect(isClose(out[at(0, 0)], 0.1, 1e-5))
+        #expect(out[at(W - 1, W - 1)] == 0)
+        #expect(out[at(W - 1, 0)] == 0)
     }
 }

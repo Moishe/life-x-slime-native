@@ -115,6 +115,7 @@ final class SimulationModel {
             if settings.palette != oldValue.palette || settings.colorCount != oldValue.colorCount {
                 life?.setColors(lifeColors)
             }
+            compositor.relief = settings.reliefSettings
         }
     }
     var params = PhysarumParams()
@@ -200,6 +201,8 @@ final class SimulationModel {
         compositor = Compositor(context: context, gridSize: initial.lifeSize)
         sim = PhysarumSim(context: context, width: fieldSize, height: fieldSize,
                           poolSize: initial.poolSize, cellSize: cellSize(forLifeSize: initial.lifeSize))
+        compositor.setHeight(sim.heightField, fieldWidth: fieldSize, fieldHeight: fieldSize)
+        compositor.relief = initial.reliefSettings
         scheduler = SpawnScheduler(maxQueued: initial.poolSize)
         settings = initial
         life = LifeRunner(size: initial.lifeSize, seed: params.rngSeed, colors: lifeColors) { [weak self] update in
@@ -314,6 +317,8 @@ final class SimulationModel {
     private func physStep() {
         scheduler.mode = settings.spawnMode
         sim.params = params
+        sim.heightGain = settings.heightGain
+        sim.heightDecay = settings.heightDecay
         let spawns = scheduler.takeForStep(limit: sim.maxSpawnsPerStep)
         let seedCount = min(pendingSeeds.count, sim.maxFoodSeedsPerStep)
         let seeds = Array(pendingSeeds.prefix(seedCount))

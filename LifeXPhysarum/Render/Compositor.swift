@@ -1,7 +1,19 @@
 import Metal
 
-/// Draws the Physarum field, the Life cells and the placement ghost into one target.
+/// Relief shading of the Physarum layer: strength in [0, 1], the height field's
+/// scale in pixels, and the light's direction as angles in radians.
+struct ReliefSettings: Equatable {
+    var relief = 0.0
+    var reliefHeight = 0.0
+    var lightAngle = 0.0
+    var lightElevation = 0.0
+}
+
+/// Draws the Physarum field (shaded by its height field), the Life cells and
+/// the placement ghost into one target.
 final class Compositor {
+    var relief = ReliefSettings()
+
     private let context: MetalContext
     // One pipeline per target pixel format (the view's, the movie's, snapshots').
     private var pipelines: [MTLPixelFormat: MTLRenderPipelineState] = [:]
@@ -12,6 +24,10 @@ final class Compositor {
     // Texels waiting to be uploaded on the next render.
     private var pendingLife: [UInt8]?
     private var pendingGhost: [UInt8]?
+    // Until setHeight, a one-pixel flat field.
+    private var height: MTLBuffer
+    private var fieldWidth = 1
+    private var fieldHeight = 1
 
     init(context: MetalContext, gridSize: Int) {
         self.context = context
@@ -22,7 +38,15 @@ final class Compositor {
         descriptor.sAddressMode = .clampToEdge
         descriptor.tAddressMode = .clampToEdge
         sampler = context.device.makeSamplerState(descriptor: descriptor)!
+        height = context.makeBuffer(length: MemoryLayout<Float>.stride, label: "flat height")
         setGridSize(gridSize)
+    }
+
+    /// The height field to shade the Physarum layer with: one Float per field pixel, row-major.
+    func setHeight(_ height: MTLBuffer, fieldWidth: Int, fieldHeight: Int) {
+        self.height = height
+        self.fieldWidth = fieldWidth
+        self.fieldHeight = fieldHeight
     }
 
     /// Recreates the per-cell textures (both start transparent) for a new Life board size.
@@ -61,11 +85,15 @@ final class Compositor {
         let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass)!
         encoder.label = "composite"
         if let viewport { encoder.setViewport(viewport) }
+        let elevation = relief.lightElevation
         var params = CompositeParams(
             physarumOpacity: Float(physarumOpacity), lifeOpacity: Float(lifeOpacity),
-            ghostOpacity: Float(ghostOpacity), pad: 0)
+            ghostOpacity: Float(ghostOpacity), relief: Float(relief.relief), heightScale: Float(relief.reliefHeight),
+            lightX: Float(cos(relief.lightAngle) * cos(elevation)), lightY: Float(sin(relief.lightAngle) * cos(elevation)),
+            lightZ: Float(sin(elevation)), fieldWidth: UInt32(fieldWidth), fieldHeight: UInt32(fieldHeight), pad0: 0, pad1: 0)
         encoder.setRenderPipelineState(pipeline(for: target.pixelFormat))
         encoder.setFragmentBytes(&params, length: MemoryLayout<CompositeParams>.stride, index: 0)
+        encoder.setFragmentBuffer(height, offset: 0, index: 1)
         encoder.setFragmentTexture(field, index: 0)
         encoder.setFragmentTexture(lifeTexture, index: 1)
         encoder.setFragmentTexture(ghostTexture, index: 2)

@@ -31,6 +31,12 @@ enum SettingsFile {
         var physarumOpacity: Double
         var poolSize: Int
         var lifeSize: Int
+        var relief: Double
+        var reliefHeight: Double
+        var lightAngle: Double
+        var lightElevation: Double
+        var heightGain: Double
+        var heightDecay: Double
     }
 
     private struct File: Codable {
@@ -44,7 +50,9 @@ enum SettingsFile {
             lifeHz: s.lifeHz, randomDensity: s.randomDensity, actorsPerBirth: s.actorsPerBirth,
             spawnMode: s.spawnMode.rawValue, palette: s.palette, colorCount: s.colorCount,
             lifeOpacity: s.lifeOpacity, physarumOpacity: s.physarumOpacity,
-            poolSize: s.poolSize, lifeSize: s.lifeSize
+            poolSize: s.poolSize, lifeSize: s.lifeSize,
+            relief: s.relief, reliefHeight: s.reliefHeight, lightAngle: s.lightAngle, lightElevation: s.lightElevation,
+            heightGain: s.heightGain, heightDecay: s.heightDecay
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -128,6 +136,12 @@ enum SettingsFile {
         number("physarumOpacity", \.physarumOpacity),
         integer("poolSize", \.poolSize),
         integer("lifeSize", \.lifeSize),
+        number("relief", \.relief),
+        number("reliefHeight", \.reliefHeight),
+        number("lightAngle", \.lightAngle),
+        number("lightElevation", \.lightElevation),
+        number("heightGain", \.heightGain),
+        number("heightDecay", \.heightDecay),
     ]
 
     private static let physarumFields: [Field<PhysarumParams>] = [

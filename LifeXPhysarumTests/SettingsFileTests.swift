@@ -1,4 +1,5 @@
 import Foundation
+import Metal
 import Testing
 @testable import LifeXPhysarum
 
@@ -17,7 +18,9 @@ import Testing
         #expect(json["version"] as? Int == SettingsFile.version)
         let settings = json["settings"] as! [String: Any]
         #expect(Set(settings.keys) == ["lifeHz", "randomDensity", "actorsPerBirth", "spawnMode", "palette", "colorCount",
-                                        "lifeOpacity", "physarumOpacity", "poolSize", "lifeSize"])
+                                        "lifeOpacity", "physarumOpacity", "poolSize", "lifeSize",
+                                        "relief", "reliefHeight", "lightAngle", "lightElevation", "heightGain", "heightDecay"])
+        #expect(settings["relief"] as? Double == 0 && settings["reliefHeight"] as? Double == 8)
         #expect(settings["palette"] as? String == "rainbow" && settings["colorCount"] as? Int == 8)
         #expect(settings["spawnMode"] as? String == "trickle")
         let physarum = json["physarum"] as! [String: Any]
@@ -43,6 +46,12 @@ import Testing
         s.poolSize = 1 << 16
         s.palette = "fairy floss"
         s.colorCount = 5
+        s.relief = 0.5
+        s.reliefHeight = 12
+        s.lightAngle = 1.5
+        s.lightElevation = 0.4
+        s.heightGain = 0.2
+        s.heightDecay = 0.05
         var p = PhysarumParams()
         p.lookDistance = 33
         p.wrapBounds = false
@@ -171,6 +180,22 @@ import Testing
         let p = loaded.applied(to: PhysarumParams())
         #expect(p.minValue == 0.4 && p.spawnWithSeedColor && p.crowdingLimit == 6)
     }
+
+    @Test func readsTheWebVersionsReliefSettings() throws {
+        let web = """
+        {
+          "version": 1,
+          "settings": { "relief": 0.7, "reliefHeight": 16, "lightAngle": 2.5, "lightElevation": 0.3,
+                        "heightGain": 0.15, "heightDecay": 0.05 },
+          "physarum": {}
+        }
+        """
+        let loaded = try SettingsFile.parse(Data(web.utf8), poolSizes: poolSizes)
+        #expect(loaded.warnings.isEmpty)
+        let s = loaded.applied(to: AppSettings())
+        #expect(s.relief == 0.7 && s.reliefHeight == 16 && s.lightAngle == 2.5 && s.lightElevation == 0.3)
+        #expect(s.heightGain == 0.15 && s.heightDecay == 0.05)
+    }
 }
 
 @Suite @MainActor struct SettingsPersistenceTests {
@@ -205,6 +230,30 @@ import Testing
         expected.mirrored = false
         expected.motionThreshold = 0.2
         #expect(settings == expected && settings.colors == .vivid && settings.trigger == .motion)
+    }
+
+    @Test func reliefSettingsFromAFileReachTheRenderer() throws {
+        let model = try #require(SimulationModel())
+        #expect(model.compositor.relief == ReliefSettings(relief: 0, reliefHeight: 8, lightAngle: 0.8, lightElevation: 0.7))
+        let file = Data(#"{"version": 1, "settings": {"relief": 0.6, "lightAngle": 2.5}, "physarum": {}}"#.utf8)
+        model.loadSettings(from: file, name: "relief")
+        #expect(model.notice == nil)
+        #expect(model.compositor.relief == ReliefSettings(relief: 0.6, reliefHeight: 8, lightAngle: 2.5, lightElevation: 0.7))
+        model.settings.reliefHeight = 20
+        #expect(model.compositor.relief.reliefHeight == 20)
+    }
+
+    @Test func rendersTheDisplayWithReliefOverTheFullSizeField() throws {
+        let model = try #require(SimulationModel())
+        model.settings.relief = 1
+        for _ in 0..<3 { model.advance(dtMs: 1000 / physarumHz) }
+        let target = texture(64)
+        run {
+            model.encodeDisplay(into: $0, target: target, viewport: MTLViewport(originX: 0, originY: 0, width: 64, height: 64, znear: 0, zfar: 1),
+                                background: MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1))
+        }
+        // No actors yet, so the field is flat black whether or not relief is on.
+        #expect(readTexture(target).pixel(32, 32) == [0, 0, 0, 255])
     }
 
     @Test func startsFromDefaultsWhenNothingIsSaved() throws {

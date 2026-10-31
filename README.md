@@ -30,6 +30,10 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   does and its name in settings files and Particles; right-click to reset it to its default.
 - **Toolbar:** seed from Life, the camera or audio, play/pause, step, random fill, clear, trail/food
   view, record, inspector.
+- **Relief:** the Relief section shades the Physarum layer as terrain. Actors pile up a height
+  field wherever they travel, and the trail is lit from the side: Relief sets how strongly,
+  Height how tall the piles look, Light Angle and Light Elevation where the light is, and
+  Height Gain and Height Decay how fast piles grow and settle. Clear Trail flattens it.
 - **Palettes:** the Life section's Palette and Color Count choose the organisms' colors (and
   so their actors' and food's) from the web version's palettes: Rainbow, Fairy Floss, Apple
   1980s, Dracula, Solarized, Nord, Synthwave, Sunset and PICO-8. They change live.

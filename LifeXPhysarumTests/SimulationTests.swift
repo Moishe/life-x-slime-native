@@ -218,6 +218,89 @@ private func redSeed(_ x: UInt32, _ y: UInt32) -> FoodSeed {
     }
 }
 
+@Suite(.serialized) struct PhysarumSimHeightTests {
+    /// The height under field pixel (x, y) once every queued step has finished.
+    func heightAt(_ sim: PhysarumSim, _ x: Int, _ y: Int) -> Float {
+        sim.readCounters()
+        return read(sim.heightField, as: Float.self, count: W * W)[y * W + x]
+    }
+
+    @Test func risesUnderAnActorByTheBlurredCountTimesTheGain() throws {
+        let sim = makeSim()
+        sim.heightGain = 0.9
+        sim.heightDecay = 0
+        try sim.step(spawns: [actor(x: 5.5, y: 7.5)], seeds: [])
+        #expect(abs(heightAt(sim, 5, 7) - 0.1) < 1e-5)
+        #expect(abs(heightAt(sim, 6, 8) - 0.1) < 1e-5)
+        #expect(heightAt(sim, 9, 9) == 0)
+    }
+
+    @Test func decaysEachStep() throws {
+        let sim = makeSim()
+        sim.heightGain = 0.9
+        sim.heightDecay = 0
+        try sim.step(spawns: [actor(x: 5.5, y: 7.5)], seeds: [])
+        sim.heightGain = 0
+        sim.heightDecay = 0.5
+        try sim.step(spawns: [], seeds: [])
+        #expect(abs(heightAt(sim, 5, 7) - 0.05) < 1e-5)
+    }
+
+    @Test func isFlattenedByClearTrail() throws {
+        let sim = makeSim()
+        sim.heightGain = 0.9
+        try sim.step(spawns: [actor(x: 5.5, y: 7.5)], seeds: [])
+        sim.clearTrail()
+        #expect(heightAt(sim, 5, 7) == 0)
+    }
+}
+
+@Suite(.serialized) struct CompositorReliefTests {
+    /// A solid grey field over `heights`, lit from the +x side at a low angle.
+    func shaded(_ heights: [Float], relief: Double = 1) -> RGBAImage {
+        let compositor = Compositor(context: gpu, gridSize: 2)
+        let field = texture(W, solidTexels(W, W, [128, 128, 128, 255]))
+        compositor.setHeight(makeBuffer(heights), fieldWidth: W, fieldHeight: W)
+        compositor.relief = ReliefSettings(relief: relief, reliefHeight: 8, lightAngle: 0, lightElevation: 0.5)
+        let target = texture(W)
+        run { compositor.encode(into: $0, target: target, field: field, physarumOpacity: 1, lifeOpacity: 0, ghostOpacity: 0) }
+        return readTexture(target)
+    }
+
+    /// A ridge: height rises with x up to column 32, then falls.
+    var ridge: [Float] {
+        (0..<W * W).map { i in Float(i % W < 32 ? i % W : 63 - i % W) / 32 }
+    }
+
+    @Test func leavesAFlatFieldUnchanged() {
+        let out = shaded([Float](repeating: 0.5, count: W * W))
+        #expect(out.pixel(10, 10) == [128, 128, 128, 255])
+        #expect(out.pixel(50, 40) == [128, 128, 128, 255])
+    }
+
+    @Test func darkensSlopesFacingAwayFromTheLightAndBrightensThoseFacingIt() {
+        let out = shaded(ridge)
+        let rising = out.pixel(16, 20)  // faces -x, away from the light
+        let falling = out.pixel(48, 20) // faces +x, toward the light
+        #expect(rising[0] < 100)
+        #expect(falling[0] > 150)
+        #expect(rising[0] == rising[1] && rising[1] == rising[2]) // grey stays grey
+    }
+
+    @Test func ignoresTheHeightFieldWhenReliefIsZero() {
+        #expect(shaded(ridge, relief: 0).pixel(16, 20) == [128, 128, 128, 255])
+    }
+
+    @Test func startsFlatBeforeAHeightFieldIsSet() {
+        let compositor = Compositor(context: gpu, gridSize: 2)
+        compositor.relief = ReliefSettings(relief: 1, reliefHeight: 8, lightAngle: 0, lightElevation: 0.5)
+        let target = texture(W)
+        run { compositor.encode(into: $0, target: target, field: texture(W, solidTexels(W, W, [128, 128, 128, 255])),
+                                physarumOpacity: 1, lifeOpacity: 0, ghostOpacity: 0) }
+        #expect(readTexture(target).pixel(10, 10) == [128, 128, 128, 255])
+    }
+}
+
 @Suite(.serialized) struct CompositorTests {
     func field(_ rgba: [UInt8]) -> MTLTexture { texture(64, solidTexels(64, 64, rgba)) }
 

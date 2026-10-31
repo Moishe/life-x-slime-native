@@ -25,6 +25,17 @@ struct AppSettings: Equatable {
     var foodView = false
     var poolSize = defaultPoolSize
     var lifeSize = 64
+    /// Relief shading of the Physarum layer from the pile height field.
+    var relief = 0.0
+    var reliefHeight = 8.0
+    var lightAngle = 0.8
+    var lightElevation = 0.7
+    var heightGain = 0.1
+    var heightDecay = 0.02
+
+    var reliefSettings: ReliefSettings {
+        ReliefSettings(relief: relief, reliefHeight: reliefHeight, lightAngle: lightAngle, lightElevation: lightElevation)
+    }
 }
 
 let defaultPoolSize = 1 << 20

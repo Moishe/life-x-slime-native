@@ -5,6 +5,7 @@ struct InspectorView: View {
     @Bindable var model: SimulationModel
 
     @AppStorage("section.layers") private var layersOpen = true
+    @AppStorage("section.relief") private var reliefOpen = false
     @AppStorage("section.life") private var lifeOpen = true
     @AppStorage("section.camera") private var cameraOpen = true
     @AppStorage("section.audio") private var audioOpen = true
@@ -23,6 +24,7 @@ struct InspectorView: View {
     var body: some View {
         Form {
             layers
+            relief
             life
             camera
             audio
@@ -53,6 +55,29 @@ struct InspectorView: View {
             ParameterSlider(title: "\(sourceLayerName) Opacity", value: $model.settings.lifeOpacity,
                             range: 0...1, step: 0.01, defaultValue: defaults.lifeOpacity, key: "lifeOpacity",
                             help: "How strongly the \(model.source == .life ? "Life cells show" : model.source == .camera ? "camera image shows" : "sound’s drawing shows") over the Physarum layer")
+        }
+    }
+
+    private var relief: some View {
+        Section("Relief", isExpanded: $reliefOpen) {
+            ParameterSlider(title: "Relief", value: $model.settings.relief, range: 0...1, step: 0.01,
+                            defaultValue: defaults.relief, key: "relief",
+                            help: "How strongly the Physarum layer is shaded as terrain, lit from the side, where actors have piled up (0 = flat)")
+            ParameterSlider(title: "Height", value: $model.settings.reliefHeight, range: 0...64, step: 0.5,
+                            defaultValue: defaults.reliefHeight, unit: "px", key: "reliefHeight",
+                            help: "How tall the piles look: the height field's scale in pixels")
+            ParameterSlider(title: "Light Angle", value: $model.settings.lightAngle, range: 0...(2 * Double.pi), step: 0.01,
+                            defaultValue: defaults.lightAngle, unit: "rad", key: "lightAngle",
+                            help: "The direction the light comes from, around the field")
+            ParameterSlider(title: "Light Elevation", value: $model.settings.lightElevation, range: 0.05...(Double.pi / 2), step: 0.01,
+                            defaultValue: defaults.lightElevation, unit: "rad", key: "lightElevation",
+                            help: "How high the light is above the field: low for long shadows, π/2 for straight overhead")
+            ParameterSlider(title: "Height Gain", value: $model.settings.heightGain, range: 0...1, step: 0.005,
+                            defaultValue: defaults.heightGain, key: "heightGain",
+                            help: "How much each actor on a pixel raises the height field per step")
+            ParameterSlider(title: "Height Decay", value: $model.settings.heightDecay, range: 0...0.2, step: 0.001,
+                            defaultValue: defaults.heightDecay, key: "heightDecay",
+                            help: "The fraction of the height field that settles away each step. Clear Trail flattens it")
         }
     }
 

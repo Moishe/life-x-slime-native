@@ -12,7 +12,8 @@ struct CounterValues: Equatable, Sendable {
 ///
 /// Pass order per step, as in Particles: diffuse/fade the trail, seed and fade
 /// the food, move/sense/turn the actors, insert Life spawns and children into
-/// the ring, then deposit every actor into the trail.
+/// the ring, deposit every actor into the trail, then fold the step's actor
+/// pile into the height field.
 final class PhysarumSim {
     enum StepError: Error, Equatable {
         case tooManySpawns(max: Int)
@@ -24,6 +25,10 @@ final class PhysarumSim {
     private static let framesInFlight = 3
 
     var params = PhysarumParams()
+    /// How much each step's (blurred) actor count raises the height field, and
+    /// what fraction of the height fades per step.
+    var heightGain = 0.0
+    var heightDecay = 0.0
     let width: Int
     let height: Int
     private(set) var poolSize = 0
@@ -41,6 +46,10 @@ final class PhysarumSim {
     private let counters: MTLBuffer
     /// Actors per field pixel in the current step, for crowdingLimit.
     private let density: MTLBuffer
+    /// Actors per field pixel in the current step, counted by the deposit pass.
+    private let pile: MTLBuffer
+    /// Pile height per field pixel (one Float each, row-major), in [0, 1].
+    let heightField: MTLBuffer
 
     /// Per-frame-in-flight upload and readback buffers, reused round-robin.
     private struct Frame {
@@ -64,6 +73,8 @@ final class PhysarumSim {
         foodTexture = context.makeFieldTexture(width: width, height: height, label: "food")
         counters = context.makeBuffer(length: MemoryLayout<Counters>.stride, label: "counters")
         density = context.makeBuffer(length: width * height * MemoryLayout<UInt32>.stride, label: "density")
+        pile = context.makeBuffer(length: width * height * MemoryLayout<UInt32>.stride, label: "pile")
+        heightField = context.makeBuffer(length: width * height * MemoryLayout<Float>.stride, label: "height")
         frames = (0..<Self.framesInFlight).map { i in
             Frame(
                 spawns: context.makeBuffer(length: 0, label: "spawns \(i)"),
@@ -112,6 +123,7 @@ final class PhysarumSim {
         let reset = commandBuffer.makeBlitCommandEncoder()!
         reset.fill(buffer: counters, range: 4..<12, value: 0)
         if p.crowdingLimit > 0 { reset.fill(buffer: density, range: 0..<density.length, value: 0) }
+        reset.fill(buffer: pile, range: 0..<pile.length, value: 0)
         reset.endEncoding()
 
         // Blur and fade each have their own interval; one pass does whichever are due.
@@ -136,7 +148,10 @@ final class PhysarumSim {
                             counters: counters, density: density, trail: current, food: foodTexture)
         passes.encodeInject(commandBuffer, params: simParams, actors: actors, spawns: frame.spawns,
                             children: children, counters: counters)
-        passes.encodeDeposit(commandBuffer, params: simParams, actors: actors, target: current)
+        passes.encodeDeposit(commandBuffer, params: simParams, actors: actors, target: current, pile: pile)
+        passes.encodeHeight(commandBuffer, params: HeightParams(gain: Float(heightGain), decay: Float(heightDecay),
+                                                                width: UInt32(width), height: UInt32(height)),
+                            pile: pile, height: heightField)
 
         let copy = commandBuffer.makeBlitCommandEncoder()!
         copy.copy(from: counters, sourceOffset: 0, to: frame.readback, destinationOffset: 0, size: MemoryLayout<Counters>.stride)
@@ -179,8 +194,14 @@ final class PhysarumSim {
         commandBuffer.commit()
     }
 
+    /// Also flattens the height field, which is as much a record of the trail as the texture.
     func clearTrail() {
         clear([trailA, trailB], to: MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1))
+        let commandBuffer = context.queue.makeCommandBuffer()!
+        let blit = commandBuffer.makeBlitCommandEncoder()!
+        blit.fill(buffer: heightField, range: 0..<heightField.length, value: 0)
+        blit.endEncoding()
+        commandBuffer.commit()
     }
 
     func clearFood() {

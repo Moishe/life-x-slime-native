@@ -64,8 +64,11 @@ fragment float4 food_fade_fragment(constant FadeParams &fade [[buffer(0)]]) {
 
 // Writes each alive actor's deposit color into pixel floor(pos) of the trail,
 // replacing what was there. Where several actors share a pixel, one of them wins.
+// Also adds one per actor to pile (one uint per field pixel, row-major), which
+// the caller zeroes before the step.
 kernel void deposit(constant SimParams &params [[buffer(0)]],
                     const device Actor *actors [[buffer(1)]],
+                    device atomic_uint *pile [[buffer(2)]],
                     texture2d<float, access::write> trail [[texture(0)]],
                     uint id [[thread_position_in_grid]]) {
     if (id >= params.poolSize) {
@@ -80,4 +83,28 @@ kernel void deposit(constant SimParams &params [[buffer(0)]],
         return;
     }
     trail.write(float4(a.color.rgb, 1.0), uint2(p));
+    atomic_fetch_add_explicit(&pile[uint(p.y) * trail.get_width() + uint(p.x)], 1u, memory_order_relaxed);
+}
+
+// Adds this step's pile count, blurred 3x3 so piles grow as mounds rather than
+// spikes, onto the decayed height (one float per field pixel, row-major, in
+// [0, 1]). Pixels outside the field count as zero.
+kernel void fold_height(constant HeightParams &hp [[buffer(0)]],
+                        const device uint *pile [[buffer(1)]],
+                        device float *height [[buffer(2)]],
+                        uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= hp.width || gid.y >= hp.height) {
+        return;
+    }
+    float count = 0.0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            int2 q = int2(gid) + int2(dx, dy);
+            if (q.x >= 0 && q.y >= 0 && q.x < int(hp.width) && q.y < int(hp.height)) {
+                count += float(pile[uint(q.y) * hp.width + uint(q.x)]);
+            }
+        }
+    }
+    uint i = gid.y * hp.width + gid.x;
+    height[i] = min(1.0, height[i] * (1.0 - hp.decay) + count / 9.0 * hp.gain);
 }

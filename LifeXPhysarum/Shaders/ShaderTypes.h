@@ -85,11 +85,27 @@ typedef struct {
     simd_uint2 pad;
 } FoodSeed;
 
+// Folds one step's pile counts into the height field.
+typedef struct {
+    float gain;
+    float decay;
+    unsigned int width;
+    unsigned int height;
+} HeightParams;
+
 typedef struct {
     float physarumOpacity;
     float lifeOpacity;
     float ghostOpacity;
-    float pad;
+    float relief;        // relief shading of the Physarum layer from the height field: 0 = flat
+    float heightScale;   // height-to-pixel scale for the slope
+    float lightX;
+    float lightY;
+    float lightZ;
+    unsigned int fieldWidth;
+    unsigned int fieldHeight;
+    unsigned int pad0;
+    unsigned int pad1;
 } CompositeParams;
 
 #endif
