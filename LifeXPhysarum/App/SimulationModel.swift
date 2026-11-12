@@ -58,6 +58,8 @@ struct AudioSettings: Codable, Equatable {
     var threshold = 0.1
     /// Spectrum and radial: bands light only within this many decibels of the loudest.
     var rangeDB = 24.0
+    /// Radial: what sets each band's distance from the center.
+    var distance = AudioDistance.pitch
     var autoGain = true
     /// Extra gain, in decibels.
     var gainDB = 0.0
@@ -77,6 +79,7 @@ struct AudioSettings: Codable, Equatable {
         colors = try c.decodeIfPresent(AudioColors.self, forKey: .colors) ?? defaults.colors
         threshold = try c.decodeIfPresent(Double.self, forKey: .threshold) ?? defaults.threshold
         rangeDB = try c.decodeIfPresent(Double.self, forKey: .rangeDB) ?? defaults.rangeDB
+        distance = try c.decodeIfPresent(AudioDistance.self, forKey: .distance) ?? defaults.distance
         autoGain = try c.decodeIfPresent(Bool.self, forKey: .autoGain) ?? defaults.autoGain
         gainDB = try c.decodeIfPresent(Double.self, forKey: .gainDB) ?? defaults.gainDB
         autoTempo = try c.decodeIfPresent(Bool.self, forKey: .autoTempo) ?? defaults.autoTempo
@@ -596,7 +599,8 @@ final class SimulationModel {
 
     private var audioConfig: AudioConfig {
         AudioConfig(gridSize: settings.lifeSize, style: audioSettings.style, colors: audioSettings.colors, palette: audioColors,
-                    threshold: Float(audioSettings.threshold), rangeDB: Float(audioSettings.rangeDB), gainDB: Float(audioSettings.gainDB), autoGain: audioSettings.autoGain,
+                    threshold: Float(audioSettings.threshold), rangeDB: Float(audioSettings.rangeDB),
+                    distance: audioSettings.distance, gainDB: Float(audioSettings.gainDB), autoGain: audioSettings.autoGain,
                     sweepBPM: audioSettings.sweepBPM, spawn: spawnSettings, maxActors: settings.poolSize, seeding: settings.playing)
     }
 

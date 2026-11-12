@@ -5,7 +5,8 @@ import AppKit
 /// the window and the field as PNGs into the app container's tmp directory.
 /// LXP_DEBUG_SNAPSHOT is a comma-separated list of steps: "fill", "glider",
 /// "food", "big", "inspector-closed", "wait=<seconds>", "audio=<style>" (seeds
-/// from a generated tune), "autotempo", "colors=<pitch|loudness>", "palette=<name>".
+/// from a generated tune), "autotempo", "colors=<pitch|loudness>", "palette=<name>",
+/// "distance=<pitch|loudness>".
 enum DebugSnapshot {
     static func runIfRequested(_ model: SimulationModel) {
         guard let script = ProcessInfo.processInfo.environment["LXP_DEBUG_SNAPSHOT"] else { return }
@@ -24,6 +25,8 @@ enum DebugSnapshot {
                 case "autotempo": model.audioSettings.autoTempo = true
                 case let s where s.hasPrefix("colors="):
                     if let colors = AudioColors(rawValue: String(s.dropFirst(7))) { model.audioSettings.colors = colors }
+                case let s where s.hasPrefix("distance="):
+                    if let distance = AudioDistance(rawValue: String(s.dropFirst(9))) { model.audioSettings.distance = distance }
                 case let s where s.hasPrefix("palette="): model.settings.palette = String(s.dropFirst(8))
                 case let s where s.hasPrefix("audio="):
                     if let style = AudioStyle(rawValue: String(s.dropFirst(6))) {

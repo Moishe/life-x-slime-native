@@ -21,6 +21,14 @@ nonisolated enum AudioColors: String, Codable, CaseIterable, Sendable {
     case pitch
 }
 
+/// What sets a band's distance from the center in the radial view.
+nonisolated enum AudioDistance: String, Codable, CaseIterable, Sendable {
+    /// Its pitch: low notes in the middle, high at the edge.
+    case pitch
+    /// Its level: quiet in the middle, loud at the edge.
+    case loudness
+}
+
 /// Colors in the audio palette: one per note, C to B.
 nonisolated let audioColorCount = 12
 
@@ -48,6 +56,8 @@ nonisolated struct AudioDrawing {
     /// Spectrum and radial: bands light only within this much (on the 0–1 level
     /// scale) of the loudest band, so what stands out is drawn, not everything over the threshold.
     var range: Float = 1
+    /// Radial: what sets each band's distance from the center.
+    var distance = AudioDistance.pitch
     /// Radial: the sweep's angle last frame and now, in radians. Equal means whole rings.
     var sweepFrom: Double = 0
     var sweepTo: Double = 0
@@ -191,7 +201,10 @@ private nonisolated func drawRadial(_ frame: AudioFrame, _ drawing: AudioDrawing
     let from = whole ? 0 : drawing.sweepFrom
     let span = whole ? 2 * Double.pi : drawing.sweepTo - drawing.sweepFrom
     for (b, level) in bands.enumerated() where bandLights(level, loudest: loudest, drawing) {
-        let r = (Double(b) + 0.5) * maxRadius / Double(bands.count)
+        let r = switch drawing.distance {
+        case .pitch: (Double(b) + 0.5) * maxRadius / Double(bands.count)
+        case .loudness: Double(level) * (maxRadius - 0.5)
+        }
         let color = drawing.colors == .pitch ? noteColor(drawing.palette, frame.bandNotes[b]) : paletteColor(drawing.palette, level)
         // About one point per cell along the arc.
         let steps = max(1, Int(ceil(abs(span) * r)))

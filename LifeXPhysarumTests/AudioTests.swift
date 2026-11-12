@@ -182,6 +182,21 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
                 < drawAudio(frame([], bands: bands), drawing(.radial), size: 32).cells.compactMap { $0 }.count / 4)
     }
 
+    @Test func loudnessDistanceDrawsLoudBandsFurtherOut() {
+        var bands = [Float](repeating: 0, count: 16)
+        bands[2] = 1
+        bands[12] = 0.5
+        var d = drawing(.radial, colors: .pitch)
+        d.palette = scale
+        d.distance = .loudness
+        let notes = (0..<16).map { $0 % 12 }
+        let canvas = drawAudio(frame([], bands: bands, bandNotes: notes), d, size: 32)
+        // The loud low band at the edge, the quieter high one halfway, each in its note's color.
+        #expect(canvas[31, 16] == scale[2])
+        #expect(canvas[23, 16] == scale[0])
+        #expect(canvas[16, 16] == nil)
+    }
+
     @Test func aSweepLightsOnlyItsArc() {
         var bands = [Float](repeating: 0, count: 16)
         bands[10] = 0.8
@@ -267,6 +282,27 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         // Once the sweep comes round again, it's cleared.
         for _ in 0..<12 { later = processor.process(silence, sampleRate: 48_000, dt: 0.25, c) }
         #expect(alpha(later, x, 8) == 0)
+    }
+
+    @Test func theSweepSpawnsEvenlyOverTheDisc() {
+        var c = config(.radial)
+        c.gridSize = 32
+        c.sweepBPM = 60
+        c.rangeDB = 60
+        let processor = AudioProcessor(seed: 1)
+        let rng = mulberry32(7)
+        // Noise lights every band; a turn takes 4 s at 60 BPM, 120 frames.
+        var inner = 0, outer = 0
+        for _ in 0..<120 {
+            let noise = (0..<4096).map { _ in Float(rng() - 0.5) }
+            for a in processor.process(noise, sampleRate: 48_000, dt: 1 / 30, c).actors {
+                let d = a.pos / 4 - 16, r = (d * d).sum().squareRoot()
+                if r < 6 { inner += 1 } else if r >= 9, r < 15 { outer += 1 }
+            }
+        }
+        // Actors per unit area, inner disc against the outer ring.
+        let ratio = (Double(inner) / (36 * .pi)) / (Double(outer) / ((225 - 81) * .pi))
+        #expect(inner > 0 && ratio > 0.6 && ratio < 1.6, "inner \(inner), outer \(outer), ratio \(ratio)")
     }
 
     @Test func theRadialSweepTurnsWithTime() {

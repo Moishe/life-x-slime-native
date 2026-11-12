@@ -45,8 +45,8 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   releases actors in the Life palette's colors (by pitch or loudness), and cells that go
   dark leave food. Styles: **Waveform** (an oscilloscope trace), **Ring** (the trace around
   a circle), **Spectrum** (loudness by pitch, low notes on the left) and **Radial** (pitch as
-  distance from the center, swept around like radar once a bar at the Sweep Tempo, each turn
-  drawn over the last; 0 BPM
+  distance from the center, or with Distance set to Loudness, loudness, swept around like radar
+  once a bar at the Sweep Tempo, each turn drawn over the last; 0 BPM
   draws whole rings, and Auto Tempo listens for the beat and sets the tempo itself). The Input
   menu lists input devices (microphones, interfaces, virtual devices such as
   [BlackHole](https://github.com/ExistentialAudio/BlackHole) or Loopback), **System Audio**

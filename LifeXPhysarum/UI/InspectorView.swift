@@ -188,6 +188,12 @@ struct InspectorView: View {
                                 help: "Only bands within this much of the loudest light, so the notes that stand out are drawn rather than every band over the threshold. 60 lights every band over the threshold")
             }
             if model.audioSettings.style == .radial {
+                Picker("Distance", selection: $model.audioSettings.distance) {
+                    Text("Pitch").tag(AudioDistance.pitch)
+                    Text("Loudness").tag(AudioDistance.loudness)
+                }
+                .pickerStyle(.segmented)
+                .help("What sets how far from the center each band is drawn. Pitch: low notes in the middle, high notes at the edge. Loudness: quiet in the middle, loud at the edge")
                 ParameterSlider(title: "Sweep Tempo", value: $model.audioSettings.sweepBPM, range: 0...240, step: 0.1,
                                 defaultValue: AudioSettings().sweepBPM, unit: "BPM",
                                 help: "The radial sweep goes around once every 4 beats at this tempo, once a bar (0 = whole rings, every band lit all the way around)")

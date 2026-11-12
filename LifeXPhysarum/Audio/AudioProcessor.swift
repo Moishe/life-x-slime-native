@@ -10,6 +10,8 @@ nonisolated struct AudioConfig: Sendable {
     var threshold: Float = 0.1
     /// Spectrum and radial: bands light only within this many decibels of the loudest.
     var rangeDB: Float = SpectrumAnalyzer.dynamicRange
+    /// Radial: what sets each band's distance from the center.
+    var distance = AudioDistance.pitch
     /// Gain in decibels, applied after automatic gain if that's on.
     var gainDB: Float = 0
     var autoGain = true
@@ -61,6 +63,8 @@ nonisolated final class AudioProcessor {
     private var glow: [Float] = []
     /// Each cell's angle around the center, as the radial sweep measures it (0–2π).
     private var cellAngles: [Double] = []
+    /// Each cell's distance from the center, in cells.
+    private var cellRadii: [Double] = []
     private var bands: [Float] = []
     private var bandNotes: [Int] = []
     private var peak: Float = 0
@@ -80,10 +84,15 @@ nonisolated final class AudioProcessor {
             lit = Array(repeating: nil, count: n)
             glow = [Float](repeating: 0, count: n * 4)
             let c = Double(size) / 2
-            cellAngles = (0..<n).map { i in
-                let a = atan2(c - (Double(i / size) + 0.5), Double(i % size) + 0.5 - c)
+            let offsets = (0..<n).map { (i: Int) -> SIMD2<Double> in
+                let x = Double(i % size) + 0.5, y = Double(i / size) + 0.5
+                return SIMD2(x - c, c - y)
+            }
+            cellAngles = offsets.map { d in
+                let a = atan2(d.y, d.x)
                 return a < 0 ? a + 2 * .pi : a
             }
+            cellRadii = offsets.map { ($0 * $0).sum().squareRoot() }
             bands = []
         }
 
@@ -115,7 +124,7 @@ nonisolated final class AudioProcessor {
         // The sweep is drawn from where it was to where it is, so fast sweeps leave no gaps.
         let sweepTo = angle < lastAngle ? angle + 2 * .pi : angle
         let drawing = AudioDrawing(style: config.style, colors: config.colors, palette: config.palette, threshold: config.threshold,
-                                   range: config.rangeDB / SpectrumAnalyzer.dynamicRange,
+                                   range: config.rangeDB / SpectrumAnalyzer.dynamicRange, distance: config.distance,
                                    sweepFrom: lastAngle, sweepTo: turnsPerSecond > 0 ? sweepTo : lastAngle)
         let canvas = drawAudio(frame, drawing, size: size)
 
@@ -143,6 +152,12 @@ nonisolated final class AudioProcessor {
         var update = AudioUpdate(gridSize: size, texels: glow.map { UInt8(min(255, max(0, $0 * 255)).rounded()) },
                                  litCells: births.count, inputLevel: inputLevel, tempo: tempo)
         if config.seeding {
+            if sweeping {
+                // Near the center a cell spans more angle than a frame's sweep, so it stays lit for
+                // several frames: it spawns with the chance the sweep has just reached it (the arc
+                // swept at its radius, in cells), so actors spread evenly over the disc.
+                births = births.filter { rng() < cellRadii[$0.y * size + $0.x] * swept }
+            }
             update.actors = birthsToActors(births, config.spawn, rng: rng, maxActors: config.maxActors)
             update.seeds = deathsToFoodSeeds(deaths)
         }
