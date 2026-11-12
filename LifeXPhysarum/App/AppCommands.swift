@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Menu bar items. Single-key shortcuts (Space, →, R, T) are handled by the
+/// Menu bar items. Single-key shortcuts (Space, →, R, T, X, C) are handled by the
 /// field view so they never steal keys from the inspector's text fields.
 struct AppCommands: Commands {
     let model: SimulationModel?
@@ -42,12 +42,14 @@ struct AppCommands: Commands {
                     .keyboardShortcut("p")
                 Button("Step Generation") { model?.step() }
                     .keyboardShortcut(.return)
-                    .disabled(model?.source == .camera)
+                    .disabled(model?.source != .life)
                 Divider()
                 Toggle("Seed from Life", isOn: sourceBinding(.life))
                     .keyboardShortcut("1", modifiers: [.command, .option])
                 Toggle("Seed from Camera", isOn: sourceBinding(.camera))
                     .keyboardShortcut("2", modifiers: [.command, .option])
+                Toggle("Seed from Audio", isOn: sourceBinding(.audio))
+                    .keyboardShortcut("3", modifiers: [.command, .option])
                 Divider()
                 Group {
                     Button("Random Fill") { model?.randomFill() }
@@ -59,7 +61,7 @@ struct AppCommands: Commands {
                         .keyboardShortcut("r")
                         .disabled(model?.tool.pattern == nil)
                 }
-                .disabled(model?.source == .camera)
+                .disabled(model?.source != .life)
                 Divider()
                 Button("Clear Trail") { model?.clearTrail() }
                 Button("Clear Food") { model?.clearFood() }

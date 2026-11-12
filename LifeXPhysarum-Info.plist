@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Xcode's generated Info.plist has no build setting for this key; the rest comes from INFOPLIST_KEY_ settings. -->
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>In Audio mode, sound playing on this Mac draws on the field and releases slime mold actors. Sound is processed on this Mac and never saved.</string>
+</dict>
+</plist>

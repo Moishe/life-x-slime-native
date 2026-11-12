@@ -5,9 +5,10 @@ struct HelpView: View {
     private let shortcuts: [(String, String)] = [
         ("Play / pause", "Space or ⌘P"),
         ("Step one generation", "→ or ⌘↩"),
-        ("Seed from Life / camera", "⌥⌘1 / ⌥⌘2"),
+        ("Seed from Life / camera / audio", "⌥⌘1 / ⌥⌘2 / ⌥⌘3"),
         ("Rotate pattern", "R or ⌘R"),
         ("Show trail / food", "⌘1 / ⌘2, or T to toggle"),
+        ("Clear actors / trail / both", "X / C / ⇧X"),
         ("Random fill / clear board", "⇧⌘F / ⇧⌘⌫"),
         ("Open / save settings", "⌘O / ⌘S"),
         ("Export images", "⇧⌘E"),
@@ -27,6 +28,7 @@ struct HelpView: View {
                     bullet("**Inspector:** every setting. Hover a control for what it does; right-click to reset it to its default.")
                     bullet("**Status bar:** frame rate, Physarum steps per second, live actors, organisms, and how many actors Life births and reproduction add each second.")
                     bullet("**Camera:** switch the toolbar from Life to Camera, and motion in front of the camera releases actors in the scene’s colors (or, with Colors set to Palette, the nearest colors in the Life palette), leaving food where it stops. Set Spawn From to Edges and the outlines in the image release actors every frame, even when nothing moves. The Camera section also picks the camera, mirrors it and sets the thresholds.")
+                    bullet("**Audio:** switch the toolbar to Audio and sound is drawn on the field (as a waveform, a ring, a spectrum, or a radial sweep with pitch as distance from the center, going round once a bar at a tempo you set or Auto Tempo detects, each turn drawn over the last); every lit cell releases actors in the Life palette’s colors, and cells that go dark leave food. Listen to a microphone or audio interface, to everything the Mac plays, or to one app such as Music. To bring in Logic, Live or GarageBand, play it, or route its output through a virtual device such as BlackHole and pick that device.")
                     bullet("**Settings files** use the web version’s format. Your settings are also remembered between sessions.")
                     bullet("**Export Images** saves the Life layer, the trail and the mix as 2048 × 2048 PNGs. **Record Movie** saves a 2048 × 2048, 30 fps movie with one frame per Physarum step.")
                 }
@@ -40,7 +42,7 @@ struct HelpView: View {
                             }
                         }
                     }
-                    Text("Space, →, R and T work when the field has focus (click it); Space and R also work in the sidebar.")
+                    Text("Space, →, R, T, X and C work when the field has focus (click it); Space and R also work in the sidebar.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }

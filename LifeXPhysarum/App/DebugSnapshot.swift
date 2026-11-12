@@ -4,7 +4,8 @@ import AppKit
 /// Development aid: with LXP_DEBUG_SNAPSHOT set, sets up a scene, then saves
 /// the window and the field as PNGs into the app container's tmp directory.
 /// LXP_DEBUG_SNAPSHOT is a comma-separated list of steps: "fill", "glider",
-/// "food", "big", "inspector-closed", "wait=<seconds>".
+/// "food", "big", "inspector-closed", "wait=<seconds>", "audio=<style>" (seeds
+/// from a generated tune), "autotempo", "colors=<pitch|loudness>", "palette=<name>".
 enum DebugSnapshot {
     static func runIfRequested(_ model: SimulationModel) {
         guard let script = ProcessInfo.processInfo.environment["LXP_DEBUG_SNAPSHOT"] else { return }
@@ -20,6 +21,15 @@ enum DebugSnapshot {
                 case let s where s.hasPrefix("tool="):
                     if let p = Pattern.named(String(s.dropFirst(5))) { model.tool = .pattern(p); model.setHover(Cell(x: 30, y: 30)) }
                 case let s where s.hasPrefix("wait="): wait = Double(s.dropFirst(5)) ?? wait
+                case "autotempo": model.audioSettings.autoTempo = true
+                case let s where s.hasPrefix("colors="):
+                    if let colors = AudioColors(rawValue: String(s.dropFirst(7))) { model.audioSettings.colors = colors }
+                case let s where s.hasPrefix("palette="): model.settings.palette = String(s.dropFirst(8))
+                case let s where s.hasPrefix("audio="):
+                    if let style = AudioStyle(rawValue: String(s.dropFirst(6))) {
+                        model.audioSettings.style = style
+                        await model.startTestTune()
+                    }
                 default: break
                 }
             }

@@ -7,6 +7,7 @@ struct InspectorView: View {
     @AppStorage("section.layers") private var layersOpen = true
     @AppStorage("section.life") private var lifeOpen = true
     @AppStorage("section.camera") private var cameraOpen = true
+    @AppStorage("section.audio") private var audioOpen = true
     @AppStorage("section.bridge") private var bridgeOpen = true
     @AppStorage("section.sensing") private var sensingOpen = true
     @AppStorage("section.movement") private var movementOpen = true
@@ -24,6 +25,7 @@ struct InspectorView: View {
             layers
             life
             camera
+            audio
             bridge
             sensing
             movement
@@ -48,10 +50,9 @@ struct InspectorView: View {
             .help("Show the pheromone trail, or the food left where Life cells died (T)")
             ParameterSlider(title: "Physarum Opacity", value: $model.settings.physarumOpacity, range: 0...1, step: 0.01,
                             defaultValue: defaults.physarumOpacity, key: "physarumOpacity", help: "How strongly the Physarum layer shows")
-            ParameterSlider(title: model.source == .camera ? "Camera Opacity" : "Life Opacity", value: $model.settings.lifeOpacity,
+            ParameterSlider(title: "\(sourceLayerName) Opacity", value: $model.settings.lifeOpacity,
                             range: 0...1, step: 0.01, defaultValue: defaults.lifeOpacity, key: "lifeOpacity",
-                            help: model.source == .camera ? "How strongly the camera image shows over the Physarum layer"
-                                                          : "How strongly the Life cells show over the Physarum layer")
+                            help: "How strongly the \(model.source == .life ? "Life cells show" : model.source == .camera ? "camera image shows" : "sound’s drawing shows") over the Physarum layer")
         }
     }
 
@@ -73,18 +74,24 @@ struct InspectorView: View {
                 Button("Clear Board", action: model.clearBoard)
             }
             }
-            .disabled(model.source == .camera)
+            .disabled(model.source != .life)
             Group {
             Picker("Palette", selection: $model.settings.palette) {
                 ForEach(palettes) { palette in
                     Text(palette.title).tag(palette.name)
                 }
             }
-            .help("The colors organisms wear, and so the colors of the actors they release and the food they leave. With the camera’s Colors set to Palette, the colors camera cells are matched to\npalette")
+            .help("The colors organisms wear, and so the colors of the actors they release and the food they leave. With the camera’s Colors set to Palette, the colors camera cells are matched to; in Audio mode, the colors sound is drawn in\npalette")
             ParameterSlider(title: "Color Count", value: $model.settings.colorCount, range: 1...maxColors,
                             defaultValue: defaults.colorCount, key: "colorCount",
-                            help: "How many colors organisms wear. Fewer than the palette has picks evenly among them; more blends between neighbors")
-            PaletteSwatch(colors: model.lifeColors)
+                            help: "How many colors organisms wear. Fewer than the palette has picks evenly among them; more blends between neighbors. Audio always uses 12, one per note")
+                .disabled(model.source == .audio)
+            if model.source == .audio {
+                PaletteSwatch(colors: model.audioColors, labels: noteNames)
+                    .help("Audio draws in 12 of the palette’s colors, one per note, C to B. With Colors set to Pitch, every note takes its color in any octave")
+            } else {
+                PaletteSwatch(colors: model.lifeColors)
+            }
             }
             .disabled(model.source == .camera && model.cameraSettings.colors != .palette)
         }
@@ -127,11 +134,84 @@ struct InspectorView: View {
         .onAppear(perform: model.refreshCameraDevices)
     }
 
+    private var sourceLayerName: String {
+        switch model.source {
+        case .life: "Life"
+        case .camera: "Camera"
+        case .audio: "Audio"
+        }
+    }
+
+    private var audio: some View {
+        Section("Audio", isExpanded: $audioOpen) {
+            Picker("Input", selection: $model.audioSettings.inputID) {
+                Text("Default Input").tag(String?.none)
+                Section("Devices") {
+                    ForEach(model.audioInputs.filter { $0.kind == .device }) { input in
+                        Text(input.name).tag(Optional(input.id))
+                    }
+                }
+                Section("Playing on This Mac") {
+                    ForEach(model.audioInputs.filter { $0.kind != .device }) { input in
+                        Text(input.name).tag(Optional(input.id))
+                    }
+                }
+            }
+            .help("What to listen to in Audio mode: a microphone or audio interface, a virtual device such as BlackHole (for routing Logic, Live or GarageBand here), everything the Mac plays, or one app that has played sound, such as Music. Listening to apps asks for System Audio Recording permission the first time")
+            LabeledContent("Level") {
+                AudioLevelMeter(model: model)
+            }
+            .help("The input’s peak level, before gain. If it stays empty while sound plays, check the input, and in System Settings → Privacy & Security, that Life × Physarum may use the microphone or record system audio")
+            Picker("Style", selection: $model.audioSettings.style) {
+                Text("Waveform").tag(AudioStyle.waveform)
+                Text("Ring").tag(AudioStyle.ring)
+                Text("Spectrum").tag(AudioStyle.spectrum)
+                Text("Radial").tag(AudioStyle.radial)
+            }
+            .help("Waveform: an oscilloscope trace across the field. Ring: the trace wrapped around a circle. Spectrum: loudness by pitch, low notes on the left. Radial: pitch as distance from the center, swept around like radar, each turn drawn over the last. Every lit cell releases actors; cells that go dark leave food")
+            Picker("Colors", selection: $model.audioSettings.colors) {
+                Text("Pitch").tag(AudioColors.pitch)
+                Text("Loudness").tag(AudioColors.loudness)
+            }
+            .pickerStyle(.segmented)
+            .help("Picks colors from the Life section’s palette, at 12 colors. Pitch: each note of the scale, C to B, has its own color in any octave (the traces take the loudest note’s). Loudness: quiet takes the palette’s first colors, loud its last")
+            Toggle("Auto Gain", isOn: $model.audioSettings.autoGain)
+                .help("Scale the sound so its recent peak fills the field, whatever the input’s level")
+            ParameterSlider(title: "Gain", value: $model.audioSettings.gainDB, range: -20...40, step: 0.5,
+                            defaultValue: AudioSettings().gainDB, unit: "dB", help: "Boosts or cuts the sound, after Auto Gain if it’s on")
+            ParameterSlider(title: "Threshold", value: $model.audioSettings.threshold, range: 0...1, step: 0.01,
+                            defaultValue: AudioSettings().threshold,
+                            help: "How loud the sound must be to light cells: a trace’s peak, or each band of the spectrum. Raise it to keep quiet passages and noise from spawning")
+            if model.audioSettings.style == .spectrum || model.audioSettings.style == .radial {
+                ParameterSlider(title: "Range", value: $model.audioSettings.rangeDB, range: 6...60, step: 1,
+                                defaultValue: AudioSettings().rangeDB, unit: "dB",
+                                help: "Only bands within this much of the loudest light, so the notes that stand out are drawn rather than every band over the threshold. 60 lights every band over the threshold")
+            }
+            if model.audioSettings.style == .radial {
+                ParameterSlider(title: "Sweep Tempo", value: $model.audioSettings.sweepBPM, range: 0...240, step: 0.1,
+                                defaultValue: AudioSettings().sweepBPM, unit: "BPM",
+                                help: "The radial sweep goes around once every 4 beats at this tempo, once a bar (0 = whole rings, every band lit all the way around)")
+                    .disabled(model.audioSettings.autoTempo)
+                Toggle(isOn: $model.audioSettings.autoTempo) {
+                    HStack {
+                        Text("Auto Tempo")
+                        Spacer()
+                        if model.audioSettings.autoTempo {
+                            TempoStatus(model: model)
+                        }
+                    }
+                }
+                .help("Listen for the beat of what’s playing and set the Sweep Tempo to it. It takes several seconds of steady rhythm to settle, and follows when the tempo changes. Turn it off to keep the last tempo found")
+            }
+        }
+        .onAppear(perform: model.refreshAudioInputs)
+    }
+
     private var bridge: some View {
         Section("Bridge", isExpanded: $bridgeOpen) {
             ParameterSlider(title: "Actors per Birth", value: $model.settings.actorsPerBirth, range: 0...256,
                             defaultValue: defaults.actorsPerBirth, key: "actorsPerBirth",
-                            help: "Physarum actors spawned in each newborn Life cell's block, or each moving cell in Camera mode")
+                            help: "Physarum actors spawned in each newborn Life cell's block, each moving cell in Camera mode, or each lit cell in Audio mode")
             Picker("Spawn Mode", selection: $model.settings.spawnMode) {
                 Text("Burst").tag(SpawnMode.burst)
                 Text("Trickle").tag(SpawnMode.trickle)
@@ -264,5 +344,39 @@ struct InspectorView: View {
             Button("Reset Physarum Parameters", action: model.resetPhysarumParameters)
                 .help("Sets every Sensing, Movement, Deposit, Food, Fade, Lifecycle and World value back to its default")
         }
+    }
+}
+
+/// The audio input's level. Its own view, so only it updates as the level moves,
+/// and drawn with shapes and a scale rather than a Gauge: a Gauge is an AppKit
+/// control whose every change relays out the whole inspector form, which costs
+/// enough to drop frames from the field.
+private struct AudioLevelMeter: View {
+    let model: SimulationModel
+
+    var body: some View {
+        let level = min(1, max(0, CGFloat(model.audioLevel)))
+        Capsule()
+            .fill(.quaternary)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(level >= 0.99 ? Color.red : Color.accentColor)
+                    .scaleEffect(x: level, y: 1, anchor: .leading)
+            }
+            .clipShape(Capsule())
+            .frame(height: 6)
+            .accessibilityElement()
+            .accessibilityLabel("Input level")
+            .accessibilityValue(Text(level, format: .percent.precision(.fractionLength(0))))
+    }
+}
+
+/// Whether Auto Tempo has found a tempo yet. Its own view, like AudioLevelMeter.
+private struct TempoStatus: View {
+    let model: SimulationModel
+
+    var body: some View {
+        Text(model.detectedTempo == nil ? "Listening…" : "Detected")
+            .foregroundStyle(.secondary)
     }
 }

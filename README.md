@@ -28,7 +28,7 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   **R** rotates the pattern 90°.
 - **Inspector** (⌥⌘I): every setting, in collapsible sections. Hover a control for what it
   does and its name in settings files and Particles; right-click to reset it to its default.
-- **Toolbar:** seed from Life or the camera, play/pause, step, random fill, clear, trail/food
+- **Toolbar:** seed from Life, the camera or audio, play/pause, step, random fill, clear, trail/food
   view, record, inspector.
 - **Palettes:** the Life section's Palette and Color Count choose the organisms' colors (and
   so their actors' and food's) from the web version's palettes: Rainbow, Fairy Floss, Apple
@@ -41,16 +41,32 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   away. The Camera section also picks the camera, mirrors it and sets the thresholds; Life
   Opacity becomes Camera Opacity. Frames are processed on the Mac and never saved, except in
   movies you record.
+- **Audio:** switch Seed From to Audio and sound is drawn on the field; every lit cell
+  releases actors in the Life palette's colors (by pitch or loudness), and cells that go
+  dark leave food. Styles: **Waveform** (an oscilloscope trace), **Ring** (the trace around
+  a circle), **Spectrum** (loudness by pitch, low notes on the left) and **Radial** (pitch as
+  distance from the center, swept around like radar once a bar at the Sweep Tempo, each turn
+  drawn over the last; 0 BPM
+  draws whole rings, and Auto Tempo listens for the beat and sets the tempo itself). The Input
+  menu lists input devices (microphones, interfaces, virtual devices such as
+  [BlackHole](https://github.com/ExistentialAudio/BlackHole) or Loopback), **System Audio**
+  (everything the Mac plays) and apps that have played sound, such as Music or Live. System
+  and app sound come from Core Audio process taps, so nothing needs installing and the sound
+  keeps playing; the first time, macOS asks for System Audio Recording permission. Auto
+  Gain, Gain and Threshold set how much sound it takes to light cells, and for Spectrum and
+  Radial, Range lights only the bands within that many decibels of the loudest. Debug builds can
+  seed from a generated tune: `LXP_DEBUG_SNAPSHOT=audio=radial`.
 - **Status bar:** frame rate, Physarum steps per second, live actors, organisms, and actors
   added per second by Life births and by reproduction.
 
 | Action | Shortcut |
 | --- | --- |
 | Play / pause | Space (in the field) or ⌘P |
-| Seed from Life / camera | ⌥⌘1 / ⌥⌘2 |
+| Seed from Life / camera / audio | ⌥⌘1 / ⌥⌘2 / ⌥⌘3 |
 | Step one generation | → (in the field) or ⌘↩ |
 | Rotate pattern | R (in the field) or ⌘R |
 | Show trail / food | ⌘1 / ⌘2, or T to toggle |
+| Clear actors / trail / both | X / C / ⇧X (in the field) |
 | Random fill / clear board | ⇧⌘F / ⇧⌘⌫ |
 | Open / save settings | ⌘O / ⌘S |
 | Export images | ⇧⌘E |

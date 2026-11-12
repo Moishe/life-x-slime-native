@@ -84,16 +84,27 @@ extension ParameterSlider {
 /// A strip showing each of a palette's colors.
 struct PaletteSwatch: View {
     let colors: [SIMD3<Float>]
+    /// A caption under each color, such as its note.
+    var labels: [String]? = nil
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(colors.indices, id: \.self) { i in
                 let c = colors[i]
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)))
+                VStack(spacing: 2) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)))
+                        .frame(height: 14)
+                    if let labels, labels.indices.contains(i) {
+                        Text(labels[i])
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
+                }
             }
         }
-        .frame(height: 14)
         .accessibilityHidden(true)
     }
 }

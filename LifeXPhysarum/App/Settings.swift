@@ -2,7 +2,7 @@
 let fieldSize = 2048
 /// Life board sizes; each divides the field into whole square pixel blocks.
 let lifeSizes = [64, 128, 256, 512, 1024]
-let physarumHz = 30.0
+nonisolated let physarumHz = 30.0
 
 /// Width of one Life cell's block on the Physarum field, in field pixels.
 func cellSize(forLifeSize lifeSize: Int) -> Int {

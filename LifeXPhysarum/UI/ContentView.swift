@@ -10,7 +10,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
             PatternSidebar(model: model)
-                .disabled(model.source == .camera)
+                .disabled(model.source != .life)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 280)
         } detail: {
             FieldView(model: model, context: context)
@@ -40,8 +40,18 @@ struct ContentView: View {
     private var subtitle: String {
         let state = model.isRecording ? "Recording" : model.settings.playing ? "Running" : "Paused"
         if model.source == .camera { return "\(state) · \(model.activeCamera?.name ?? "Camera")" }
+        if model.source == .audio { return "\(state) · \(model.activeAudioInput?.name ?? "Audio")" }
         let tool = model.tool.pattern.map { "\($0.name) \(model.quarterTurns * 90)°" } ?? "Paint Cells"
         return "\(state) · \(tool)"
+    }
+
+    private var playHelp: String {
+        let playing = model.settings.playing
+        switch model.source {
+        case .life: return playing ? "Pause Life (Space)" : "Run Life (Space)"
+        case .camera: return playing ? "Stop releasing actors from the camera (Space)" : "Release actors from the camera (Space)"
+        case .audio: return playing ? "Stop releasing actors from sound (Space)" : "Release actors from sound (Space)"
+        }
     }
 
     @ToolbarContentBuilder
@@ -50,21 +60,20 @@ struct ContentView: View {
             Picker("Seed From", selection: Binding(get: { model.source }, set: { source in Task { await model.setSource(source) } })) {
                 Label("Life", systemImage: "circle.grid.3x3.fill").accessibilityLabel("Life").tag(SeedSource.life)
                 Label("Camera", systemImage: "web.camera").accessibilityLabel("Camera").tag(SeedSource.camera)
+                Label("Audio", systemImage: "waveform").accessibilityLabel("Audio").tag(SeedSource.audio)
             }
             .pickerStyle(.segmented)
-            .disabled(model.isStartingCamera)
-            .help("Release actors from Life’s births, or from motion in front of the camera (⌥⌘1 / ⌥⌘2)")
+            .disabled(model.isStartingSource)
+            .help("Release actors from Life’s births, from motion in front of the camera, or from sound (⌥⌘1 / ⌥⌘2 / ⌥⌘3)")
         }
         ToolbarItemGroup(placement: .navigation) {
             Button(model.settings.playing ? "Pause" : "Play",
                    systemImage: model.settings.playing ? "pause.fill" : "play.fill",
                    action: model.togglePlaying)
-                .help(model.source == .camera
-                      ? (model.settings.playing ? "Stop releasing actors from the camera (Space)" : "Release actors from the camera (Space)")
-                      : (model.settings.playing ? "Pause Life (Space)" : "Run Life (Space)"))
+                .help(playHelp)
             Button("Step", systemImage: "forward.frame.fill", action: model.step)
                 .help("Advance Life by one generation (→)")
-                .disabled(model.source == .camera)
+                .disabled(model.source != .life)
         }
         ToolbarItemGroup(placement: .navigation) {
             Button("Random Fill", systemImage: "die.face.5", action: model.randomFill)

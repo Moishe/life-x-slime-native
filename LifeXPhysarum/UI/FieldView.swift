@@ -136,7 +136,15 @@ final class FieldMTKView: MTKView, MTKViewDelegate {
             super.keyDown(with: event)
             return
         }
+        // Shift keeps its case here, so X and x can differ.
+        if event.charactersIgnoringModifiers == "X" {
+            model.clearActors()
+            model.clearTrail()
+            return
+        }
         switch event.charactersIgnoringModifiers?.lowercased() {
+        case "x": model.clearActors()
+        case "c": model.clearTrail()
         case "r": model.rotate()
         case "t": model.settings.foodView.toggle()
         case " ": model.togglePlaying()

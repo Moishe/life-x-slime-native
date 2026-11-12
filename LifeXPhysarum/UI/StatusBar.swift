@@ -56,7 +56,9 @@ struct StatusBar: View {
     @ViewBuilder
     private func counts(_ r: Readouts) -> some View {
         item(r.alive.formatted(), "actors", help: "Physarum actors alive")
-        if model.source == .camera {
+        if model.source == .audio {
+            item(r.movingCells.formatted(), r.movingCells == 1 ? "lit cell" : "lit cells", help: "Cells the sound lit in the last audio frame")
+        } else if model.source == .camera {
             if model.cameraSettings.trigger == .edges {
                 item(r.movingCells.formatted(), r.movingCells == 1 ? "edge cell" : "edge cells", help: "Cells on an edge in the last camera frame")
             } else {
@@ -69,7 +71,9 @@ struct StatusBar: View {
 
     @ViewBuilder
     private func inserts(_ r: Readouts) -> some View {
-        if model.source == .camera {
+        if model.source == .audio {
+            item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from audio", help: "Actors spawned by the sound’s lit cells per second")
+        } else if model.source == .camera {
             item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from camera", help: "Actors spawned by the camera’s motion or edges per second")
         } else {
             item("+\(Int(r.lifeInsertsPerSec.rounded()).formatted())/s", "from Life", help: "Actors spawned by Life births per second")

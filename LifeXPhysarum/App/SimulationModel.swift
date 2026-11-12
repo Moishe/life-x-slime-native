@@ -15,9 +15,9 @@ struct Readouts: Equatable {
     var movingCells = 0
 }
 
-/// What releases actors: Life's births, or motion in front of the camera.
+/// What releases actors: Life's births, motion in front of the camera, or sound.
 enum SeedSource: String, CaseIterable {
-    case life, camera
+    case life, camera, audio
 }
 
 /// Camera options. Not part of settings files (the web version has no camera).
@@ -45,6 +45,52 @@ struct CameraSettings: Codable, Equatable {
         colors = try c.decodeIfPresent(CameraColors.self, forKey: .colors) ?? defaults.colors
         trigger = try c.decodeIfPresent(CameraTrigger.self, forKey: .trigger) ?? defaults.trigger
         edgeThreshold = try c.decodeIfPresent(Double.self, forKey: .edgeThreshold) ?? defaults.edgeThreshold
+    }
+}
+
+/// Audio options. Not part of settings files (the web version has no audio).
+struct AudioSettings: Codable, Equatable {
+    /// An AudioInput's ID; nil means the default input device.
+    var inputID: String?
+    var style = AudioStyle.waveform
+    var colors = AudioColors.pitch
+    /// The level (0–1) a trace's peak or a band must pass to light cells.
+    var threshold = 0.1
+    /// Spectrum and radial: bands light only within this many decibels of the loudest.
+    var rangeDB = 24.0
+    var autoGain = true
+    /// Extra gain, in decibels.
+    var gainDB = 0.0
+    /// Radial sweep tempo in beats per minute (one turn per bar of 4); 0 draws whole rings.
+    var sweepBPM = 60.0
+    /// Set the sweep tempo from the detected tempo of what's playing.
+    var autoTempo = false
+
+    init() {}
+
+    // Tolerates settings saved before a field existed.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = AudioSettings()
+        inputID = try c.decodeIfPresent(String.self, forKey: .inputID)
+        style = try c.decodeIfPresent(AudioStyle.self, forKey: .style) ?? defaults.style
+        colors = try c.decodeIfPresent(AudioColors.self, forKey: .colors) ?? defaults.colors
+        threshold = try c.decodeIfPresent(Double.self, forKey: .threshold) ?? defaults.threshold
+        rangeDB = try c.decodeIfPresent(Double.self, forKey: .rangeDB) ?? defaults.rangeDB
+        autoGain = try c.decodeIfPresent(Bool.self, forKey: .autoGain) ?? defaults.autoGain
+        gainDB = try c.decodeIfPresent(Double.self, forKey: .gainDB) ?? defaults.gainDB
+        autoTempo = try c.decodeIfPresent(Bool.self, forKey: .autoTempo) ?? defaults.autoTempo
+        if let bpm = try c.decodeIfPresent(Double.self, forKey: .sweepBPM) {
+            sweepBPM = bpm
+        } else if let turns = try decoder.container(keyedBy: LegacyKeys.self).decodeIfPresent(Double.self, forKey: .sweepSpeed) {
+            sweepBPM = turns * 60 * AudioProcessor.beatsPerTurn
+        }
+    }
+
+    /// Fields from earlier versions.
+    private enum LegacyKeys: CodingKey {
+        /// Turns per second, before the sweep was set in BPM.
+        case sweepSpeed
     }
 }
 
@@ -90,6 +136,21 @@ final class SimulationModel {
     private(set) var cameraDevices: [CameraDevice] = []
     /// The camera in use while the source is the camera.
     private(set) var activeCamera: CameraDevice?
+    private(set) var isStartingAudio = false
+    var audioSettings = AudioSettings() {
+        didSet {
+            if source == .audio, audioSettings.inputID != oldValue.inputID { Task { await startAudio() } }
+        }
+    }
+    private(set) var audioInputs: [AudioInput] = []
+    /// The input in use while the source is audio.
+    private(set) var activeAudioInput: AudioInput?
+    /// The tempo of what's playing, once the detector has settled on one.
+    private(set) var detectedTempo: Double?
+    /// The audio input's peak level (0–1, before gain), refreshed with the readouts.
+    /// Kept out of `readouts` so only the level meter redraws as it moves: the
+    /// inspector re-laying out on every readout made the field stutter.
+    private(set) var audioLevel: Float = 0
     /// The last export, for the status bar's "Show in Finder".
     private(set) var lastSaved: URL?
     let poolSizes: [Int]
@@ -114,6 +175,8 @@ final class SimulationModel {
     @ObservationIgnored private var camera: CameraSource?
     @ObservationIgnored private var deviceObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var movingCells = 0
+    @ObservationIgnored private var audio: AudioSource?
+    @ObservationIgnored private var latestAudioLevel: Float = 0
 
     // MARK: Readouts
 
@@ -148,6 +211,9 @@ final class SimulationModel {
             })
         }
 
+        // Keep the audio inputs current, and leave Audio mode if its input goes away.
+        AudioCapture.observeChanges { [weak self] in self?.audioInputsChanged() }
+
         readoutTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateReadouts() }
         }
@@ -158,6 +224,9 @@ final class SimulationModel {
     /// The colors Life's organisms wear: the chosen palette at the chosen count.
     var lifeColors: [SIMD3<Float>] { paletteColors(settings.palette, count: settings.colorCount) }
 
+    /// The colors sound is drawn in: the chosen palette at 12 colors, one per note, C first.
+    var audioColors: [SIMD3<Float>] { paletteColors(settings.palette, count: audioColorCount) }
+
     /// The field the view shows: the trail, or the food map in food view.
     var displayedField: MTLTexture { settings.foodView ? sim.foodTexture : sim.trail }
 
@@ -166,6 +235,7 @@ final class SimulationModel {
     /// Advances the simulations by `dtMs` of wall-clock time.
     func advance(dtMs: Double) {
         if source == .camera { camera?.setConfig(cameraConfig) }
+        if source == .audio { audio?.setConfig(audioConfig) }
         if recorder != nil { recordingFrame(dtMs) } else { liveFrame(dtMs) }
         frames.add()
     }
@@ -310,7 +380,7 @@ final class SimulationModel {
     }
 
     private func refreshGhost() {
-        let cells = source == .camera ? [] : hover.map { ghostCells(tool.pattern, quarterTurns: quarterTurns, anchor: $0, gridSize: settings.lifeSize) } ?? []
+        let cells = source != .life ? [] : hover.map { ghostCells(tool.pattern, quarterTurns: quarterTurns, anchor: $0, gridSize: settings.lifeSize) } ?? []
         compositor.setGhost(ghostTexels(cells, gridSize: settings.lifeSize))
     }
 
@@ -390,21 +460,31 @@ final class SimulationModel {
 
     // MARK: Camera
 
-    /// Switches what releases actors. Starting the camera asks for permission the
-    /// first time; if it can't start, the source stays Life and a notice explains why.
+    /// Switches what releases actors. Starting the camera or audio asks for
+    /// permission the first time; if it can't start, the source stays as it was
+    /// and a notice explains why.
     func setSource(_ newSource: SeedSource) async {
-        guard newSource != source, !isStartingCamera else { return }
+        guard newSource != source, !isStartingSource else { return }
         switch newSource {
         case .camera:
             await startCamera()
+        case .audio:
+            await startAudio()
         case .life:
-            camera?.stop()
-            activeCamera = nil
+            stopCamera()
+            stopAudio()
             source = .life
-            movingCells = 0
             life.edit { _ in } // Shows the Life board again.
         }
         refreshGhost()
+    }
+
+    var isStartingSource: Bool { isStartingCamera || isStartingAudio }
+
+    private func stopCamera() {
+        camera?.stop()
+        activeCamera = nil
+        movingCells = 0
     }
 
     func refreshCameraDevices() {
@@ -427,6 +507,7 @@ final class SimulationModel {
         self.camera = camera
         do {
             activeCamera = try await camera.start(deviceID: cameraSettings.deviceID)
+            stopAudio()
             source = .camera
             scheduler.clear()
         } catch {
@@ -453,10 +534,94 @@ final class SimulationModel {
         movingCells = update.movingCells
     }
 
+    // MARK: Audio
+
+    func refreshAudioInputs() {
+        let inputs = AudioCapture.inputs()
+        if inputs != audioInputs { audioInputs = inputs }
+    }
+
+    private func audioInputsChanged() {
+        refreshAudioInputs()
+        guard source == .audio, let active = activeAudioInput, !audioInputs.contains(where: { $0.id == active.id }) else { return }
+        Task { await setSource(.life) }
+        notice = Notice(title: "“\(active.name)” went away", message: "Actors are coming from Life again.")
+    }
+
+    #if DEBUG
+    /// Seeds from a generated tune instead of the chosen input (for DebugSnapshot).
+    @ObservationIgnored private var playsTestTune = false
+
+    func startTestTune() async {
+        playsTestTune = true
+        await setSource(.audio)
+    }
+    #endif
+
+    private func startAudio() async {
+        isStartingAudio = true
+        defer { isStartingAudio = false }
+        let audio = audio ?? AudioSource(config: audioConfig, seed: params.rngSeed) { [weak self] update in
+            self?.receive(update)
+        }
+        self.audio = audio
+        refreshAudioInputs()
+        // A saved input that isn't listed now is still tried, so its failure can say what's missing.
+        var input = audioSettings.inputID.map { id in
+            audioInputs.first { $0.id == id } ?? AudioInput(id: id, name: id.hasPrefix("app:") ? String(id.dropFirst(4)) : id,
+                                                            kind: AudioInput.kind(of: id))
+        }
+        #if DEBUG
+        if playsTestTune { input = .test }
+        #endif
+        do {
+            activeAudioInput = try await audio.start(input)
+            stopCamera()
+            source = .audio
+            scheduler.clear()
+        } catch {
+            if source == .audio { stopAudio(); source = .life; life.edit { _ in } }
+            notice = Notice(title: "Couldn’t listen to \(input?.name ?? "the audio input")", message: error.localizedDescription)
+        }
+        refreshGhost()
+    }
+
+    private func stopAudio() {
+        audio?.stop()
+        activeAudioInput = nil
+        movingCells = 0
+        latestAudioLevel = 0
+        detectedTempo = nil
+    }
+
+    private var audioConfig: AudioConfig {
+        AudioConfig(gridSize: settings.lifeSize, style: audioSettings.style, colors: audioSettings.colors, palette: audioColors,
+                    threshold: Float(audioSettings.threshold), rangeDB: Float(audioSettings.rangeDB), gainDB: Float(audioSettings.gainDB), autoGain: audioSettings.autoGain,
+                    sweepBPM: audioSettings.sweepBPM, spawn: spawnSettings, maxActors: settings.poolSize, seeding: settings.playing)
+    }
+
+    /// Takes in a processed moment of sound: its drawing, and its spawns and food.
+    private func receive(_ update: AudioUpdate) {
+        guard source == .audio, update.gridSize == compositor.gridSize else { return }
+        scheduler.enqueue(update.actors, stepsUntilNextTick: 1)
+        pendingSeeds.append(contentsOf: update.seeds)
+        compositor.setLife(update.texels)
+        movingCells = update.litCells
+        latestAudioLevel = update.inputLevel
+        // Observers hear every assignment, equal or not, and updates arrive 30 times a second.
+        if detectedTempo != update.tempo { detectedTempo = update.tempo }
+        if audioSettings.autoTempo, let tempo = update.tempo {
+            let rounded = (tempo * 10).rounded() / 10
+            // Ignore drift under 1%, so the inspector isn't rebuilt every second for a tenth of a BPM.
+            if abs(rounded - audioSettings.sweepBPM) > audioSettings.sweepBPM * 0.01 { audioSettings.sweepBPM = rounded }
+        }
+    }
+
     // MARK: Remembered settings
 
     private static let savedSettingsKey = "LastSessionSettings"
     private static let cameraSettingsKey = "CameraSettings"
+    private static let audioSettingsKey = "AudioSettings"
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
 
     /// Restores the last session's settings (as a settings file) from `defaults`,
@@ -470,6 +635,10 @@ final class SimulationModel {
            let saved = try? JSONDecoder().decode(CameraSettings.self, from: data) {
             cameraSettings = saved
         }
+        if let data = defaults.data(forKey: Self.audioSettingsKey),
+           let saved = try? JSONDecoder().decode(AudioSettings.self, from: data) {
+            audioSettings = saved
+        }
         nonisolated(unsafe) let defaults = defaults // UserDefaults is thread-safe
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
@@ -481,6 +650,7 @@ final class SimulationModel {
     func saveSettings(to defaults: UserDefaults) {
         if let data = try? settingsFileData() { defaults.set(data, forKey: Self.savedSettingsKey) }
         if let data = try? JSONEncoder().encode(cameraSettings) { defaults.set(data, forKey: Self.cameraSettingsKey) }
+        if let data = try? JSONEncoder().encode(audioSettings) { defaults.set(data, forKey: Self.audioSettingsKey) }
     }
 
     // MARK: Export
@@ -564,5 +734,6 @@ final class SimulationModel {
             lifeInsertsPerSec: lifeInserts.sample(nowMs: now),
             childInsertsPerSec: childInserts.sample(nowMs: now),
             movingCells: movingCells)
+        if audioLevel != latestAudioLevel { audioLevel = latestAudioLevel }
     }
 }
