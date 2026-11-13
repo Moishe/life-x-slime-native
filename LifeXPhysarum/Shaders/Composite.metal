@@ -13,6 +13,12 @@ vertex ScreenOut composite_vertex(uint vid [[vertex_id]]) {
     return out;
 }
 
+// Turns v (in y-down texture coordinates) by `angle` radians, counterclockwise as seen on screen.
+static float2 turn(float2 v, float angle) {
+    float c = cos(angle), s = sin(angle);
+    return float2(c * v.x + s * v.y, -s * v.x + c * v.y);
+}
+
 static float height_at(constant CompositeParams &composite, const device float *height, int2 c) {
     int w = int(composite.fieldWidth);
     int h = int(composite.fieldHeight);
@@ -28,6 +34,8 @@ static float relief_shade(constant CompositeParams &composite, const device floa
     float dx = (height_at(composite, height, c + int2(2, 0)) - height_at(composite, height, c - int2(2, 0))) * composite.heightScale * 0.5;
     float dy = (height_at(composite, height, c + int2(0, 2)) - height_at(composite, height, c - int2(0, 2))) * composite.heightScale * 0.5;
     float3 n = normalize(float3(-dx, -dy, 1.0));
+    // The light stays put on screen while the field turns under it.
+    n.xy = turn(n.xy, composite.rotation);
     float3 l = normalize(float3(composite.lightX, composite.lightY, composite.lightZ));
     float diffuse = max(dot(n, l), 0.0) / max(l.z, 0.05);
     float3 halfway = normalize(l + float3(0.0, 0.0, 1.0));
@@ -35,7 +43,8 @@ static float relief_shade(constant CompositeParams &composite, const device floa
     return diffuse + specular * 0.6;
 }
 
-// Physarum layer (alpha ignored) over black, shaded by the relief, then Life
+// The field is turned by `rotation` and magnified by `zoom` about its center; what turns off the
+// field's square is left the background. Physarum layer (alpha ignored) over black, shaded by the relief, then Life
 // cells, then the placement ghost, each scaled by its opacity. height is one
 // float per field pixel, row-major, in [0, 1].
 fragment float4 composite_fragment(ScreenOut in [[stage_in]],
@@ -45,12 +54,14 @@ fragment float4 composite_fragment(ScreenOut in [[stage_in]],
                                    texture2d<float, access::read> life [[texture(1)]],
                                    texture2d<float, access::read> ghost [[texture(2)]],
                                    sampler fieldSampler [[sampler(0)]]) {
-    float3 rgb = field.sample(fieldSampler, in.uv).rgb * composite.physarumOpacity;
+    float2 uv = 0.5 + turn(in.uv - 0.5, -composite.rotation) / composite.zoom;
+    if (any(uv < 0.0) || any(uv > 1.0)) discard_fragment();
+    float3 rgb = field.sample(fieldSampler, uv).rgb * composite.physarumOpacity;
     if (composite.relief > 0.0) {
-        rgb *= mix(1.0, relief_shade(composite, height, in.uv), composite.relief);
+        rgb *= mix(1.0, relief_shade(composite, height, uv), composite.relief);
     }
     float2 gridSize = float2(life.get_width(), life.get_height());
-    uint2 cell = uint2(clamp(floor(in.uv * gridSize), float2(0.0), gridSize - float2(1.0)));
+    uint2 cell = uint2(clamp(floor(uv * gridSize), float2(0.0), gridSize - float2(1.0)));
     float4 lifeCell = life.read(cell);
     rgb = mix(rgb, lifeCell.rgb, lifeCell.a * composite.lifeOpacity);
     float4 ghostCell = ghost.read(cell);

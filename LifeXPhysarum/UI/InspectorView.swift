@@ -233,6 +233,9 @@ struct InspectorView: View {
                     }
                 }
                 .help("Listen for the beat of what’s playing and set the Sweep Tempo to it. It takes several seconds of steady rhythm to settle, and follows when the tempo changes. Turn it off to keep the last tempo found")
+                Toggle("Sweep at Top", isOn: $model.audioSettings.sweepAtTop)
+                    .disabled(model.audioSettings.sweepBPM == 0)
+                    .help("Keep the sweep at 12 o’clock and turn the field, and everything on it, around the center instead. The view zooms in so the board’s edges never show. Recordings turn too")
             }
         }
         .onAppear(perform: model.refreshAudioInputs)

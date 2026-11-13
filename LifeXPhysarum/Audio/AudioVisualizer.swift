@@ -58,6 +58,8 @@ nonisolated struct AudioDrawing {
     var range: Float = 1
     /// Radial: what sets each band's distance from the center.
     var distance = AudioDistance.pitch
+    /// Radial: the outermost radius, as a fraction of half the grid.
+    var radiusScale = 1.0
     /// Radial: the sweep's angle last frame and now, in radians. Equal means whole rings.
     var sweepFrom: Double = 0
     var sweepTo: Double = 0
@@ -196,7 +198,7 @@ private nonisolated func drawRadial(_ frame: AudioFrame, _ drawing: AudioDrawing
     let bands = frame.bands
     guard let loudest = bands.max() else { return }
     let center = SIMD2(Double(canvas.size) / 2, Double(canvas.size) / 2)
-    let maxRadius = Double(canvas.size) / 2
+    let maxRadius = Double(canvas.size) / 2 * drawing.radiusScale
     let whole = drawing.sweepFrom == drawing.sweepTo
     let from = whole ? 0 : drawing.sweepFrom
     let span = whole ? 2 * Double.pi : drawing.sweepTo - drawing.sweepFrom

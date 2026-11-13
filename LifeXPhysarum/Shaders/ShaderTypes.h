@@ -104,8 +104,8 @@ typedef struct {
     float lightZ;
     unsigned int fieldWidth;
     unsigned int fieldHeight;
-    unsigned int pad0;
-    unsigned int pad1;
+    float rotation;      // radians the field is turned counterclockwise about its center on screen
+    float zoom;          // magnification about the center: 1 shows the whole field
 } CompositeParams;
 
 #endif

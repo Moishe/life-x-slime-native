@@ -304,6 +304,26 @@ private func redSeed(_ x: UInt32, _ y: UInt32) -> FoodSeed {
 @Suite(.serialized) struct CompositorTests {
     func field(_ rgba: [UInt8]) -> MTLTexture { texture(64, solidTexels(64, 64, rgba)) }
 
+    @Test func turnsTheFieldCounterclockwiseLeavingTheCornersItLeavesBlank() {
+        let compositor = Compositor(context: gpu, gridSize: 2)
+        var life = [UInt8](repeating: 0, count: 16)
+        life.replaceSubrange(4..<8, with: [0, 255, 0, 255]) // cell (1, 0), top right
+        compositor.setLife(life)
+        let grey = field([128, 128, 128, 255])
+        func render(_ rotation: Double) -> RGBAImage {
+            let target = texture(64)
+            run { compositor.encode(into: $0, target: target, field: grey, physarumOpacity: 1, lifeOpacity: 1,
+                                    ghostOpacity: 0, rotation: rotation) }
+            return readTexture(target)
+        }
+        let quarter = render(.pi / 2)
+        #expect(quarter.pixel(16, 16) == [0, 255, 0, 255]) // top right turned to top left
+        #expect(quarter.pixel(48, 16) == [128, 128, 128, 255])
+        let eighth = render(.pi / 4)
+        #expect(eighth.pixel(1, 1) == [0, 0, 0, 255]) // off the field: the background
+        #expect(eighth.pixel(32, 40) == [128, 128, 128, 255])
+    }
+
     func render(_ compositor: Compositor, field: MTLTexture, format: MTLPixelFormat = .rgba8Unorm,
                 _ physarum: Double, _ life: Double, _ ghost: Double) -> RGBAImage {
         let target = texture(64, format: format)

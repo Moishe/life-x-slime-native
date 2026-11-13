@@ -12,6 +12,8 @@ nonisolated struct AudioConfig: Sendable {
     var rangeDB: Float = SpectrumAnalyzer.dynamicRange
     /// Radial: what sets each band's distance from the center.
     var distance = AudioDistance.pitch
+    /// Radial: the outermost radius, as a fraction of half the grid.
+    var radiusScale = 1.0
     /// Gain in decibels, applied after automatic gain if that's on.
     var gainDB: Float = 0
     var autoGain = true
@@ -35,6 +37,9 @@ nonisolated struct AudioUpdate: Sendable {
     var inputLevel: Float = 0
     /// The detected tempo, once it has settled.
     var tempo: Double?
+    /// The radial sweep's angle (radians counterclockwise from 3 o'clock) and
+    /// its speed in turns a second; nil while nothing sweeps.
+    var sweep: (angle: Double, turnsPerSecond: Double)?
 }
 
 /// Turns windows of samples into actors and food, as CameraProcessor does for
@@ -103,7 +108,8 @@ nonisolated final class AudioProcessor {
         if config.autoGain { gain *= 0.9 / max(peak, Self.quietestPeak) }
         let scaled = samples.map { $0 * gain }
 
-        let bandCount = config.style == .radial ? size / 2 : size
+        // Radial: one band per cell of radius.
+        let bandCount = config.style == .radial ? max(1, Int(Double(size) / 2 * config.radiusScale)) : size
         let amplitudes = analyzer.amplitudes(scaled)
         let (fresh, freshNotes) = analyzer.bands(amplitudes: amplitudes, count: bandCount, sampleRate: sampleRate)
         if bands.count != bandCount { bands = fresh; bandNotes = freshNotes }
@@ -124,7 +130,7 @@ nonisolated final class AudioProcessor {
         // The sweep is drawn from where it was to where it is, so fast sweeps leave no gaps.
         let sweepTo = angle < lastAngle ? angle + 2 * .pi : angle
         let drawing = AudioDrawing(style: config.style, colors: config.colors, palette: config.palette, threshold: config.threshold,
-                                   range: config.rangeDB / SpectrumAnalyzer.dynamicRange, distance: config.distance,
+                                   range: config.rangeDB / SpectrumAnalyzer.dynamicRange, distance: config.distance, radiusScale: config.radiusScale,
                                    sweepFrom: lastAngle, sweepTo: turnsPerSecond > 0 ? sweepTo : lastAngle)
         let canvas = drawAudio(frame, drawing, size: size)
 
@@ -150,7 +156,8 @@ nonisolated final class AudioProcessor {
         lit = canvas.cells
 
         var update = AudioUpdate(gridSize: size, texels: glow.map { UInt8(min(255, max(0, $0 * 255)).rounded()) },
-                                 litCells: births.count, inputLevel: inputLevel, tempo: tempo)
+                                 litCells: births.count, inputLevel: inputLevel, tempo: tempo,
+                                 sweep: sweeping ? (angle, turnsPerSecond) : nil)
         if config.seeding {
             if sweeping {
                 // Near the center a cell spans more angle than a frame's sweep, so it stays lit for

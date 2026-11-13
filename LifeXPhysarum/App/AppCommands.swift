@@ -34,6 +34,12 @@ struct AppCommands: Commands {
                 run { await $0.toggleRecordingWithPanel() }
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(model?.renderProgress != nil)
+            Button(model?.renderProgress != nil ? "Stop Rendering" : "Render Movie from Audio File…") {
+                run { await $0.renderMovieWithPanel() }
+            }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+            .disabled(model?.isRecording == true)
         }
 
         CommandMenu("Simulation") {

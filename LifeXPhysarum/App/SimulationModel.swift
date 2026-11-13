@@ -67,6 +67,8 @@ struct AudioSettings: Codable, Equatable {
     var sweepBPM = 60.0
     /// Set the sweep tempo from the detected tempo of what's playing.
     var autoTempo = false
+    /// Radial: turn the field on screen so the sweep stays at 12 o'clock.
+    var sweepAtTop = false
 
     init() {}
 
@@ -83,6 +85,7 @@ struct AudioSettings: Codable, Equatable {
         autoGain = try c.decodeIfPresent(Bool.self, forKey: .autoGain) ?? defaults.autoGain
         gainDB = try c.decodeIfPresent(Double.self, forKey: .gainDB) ?? defaults.gainDB
         autoTempo = try c.decodeIfPresent(Bool.self, forKey: .autoTempo) ?? defaults.autoTempo
+        sweepAtTop = try c.decodeIfPresent(Bool.self, forKey: .sweepAtTop) ?? defaults.sweepAtTop
         if let bpm = try c.decodeIfPresent(Double.self, forKey: .sweepBPM) {
             sweepBPM = bpm
         } else if let turns = try decoder.container(keyedBy: LegacyKeys.self).decodeIfPresent(Double.self, forKey: .sweepSpeed) {
@@ -95,6 +98,14 @@ struct AudioSettings: Codable, Equatable {
         /// Turns per second, before the sweep was set in BPM.
         case sweepSpeed
     }
+}
+
+/// How far a render from an audio file has got, in movie frames.
+struct RenderProgress: Equatable {
+    var done: Int
+    var total: Int
+
+    var fraction: Double { total > 0 ? Double(done) / Double(total) : 0 }
 }
 
 /// A message for the user, shown as an alert.
@@ -128,6 +139,8 @@ final class SimulationModel {
     private(set) var quarterTurns = 0
     private(set) var readouts = Readouts()
     private(set) var recordingFrames: Int?
+    /// While a movie renders from an audio file: frames done, and how many in all.
+    private(set) var renderProgress: RenderProgress?
     private(set) var isStartingRecording = false
     var notice: Notice?
     private(set) var source = SeedSource.life
@@ -181,6 +194,9 @@ final class SimulationModel {
     @ObservationIgnored private var movingCells = 0
     @ObservationIgnored private var audio: AudioSource?
     @ObservationIgnored private var latestAudioLevel: Float = 0
+    @ObservationIgnored private var renderCancelled = false
+    /// The radial sweep as of the last audio update, and when that arrived.
+    @ObservationIgnored private var sweep: (angle: Double, turnsPerSecond: Double, time: CFTimeInterval)?
 
     // MARK: Readouts
 
@@ -242,7 +258,13 @@ final class SimulationModel {
     func advance(dtMs: Double) {
         if source == .camera { camera?.setConfig(cameraConfig) }
         if source == .audio { audio?.setConfig(audioConfig) }
-        if recorder != nil { recordingFrame(dtMs) } else { liveFrame(dtMs) }
+        if renderProgress != nil {
+            // The render steps the simulation itself; the window just shows it.
+        } else if recorder != nil {
+            recordingFrame(dtMs)
+        } else {
+            liveFrame(dtMs)
+        }
         frames.add()
     }
 
@@ -276,7 +298,8 @@ final class SimulationModel {
             do {
                 try recorder.addFrame { commandBuffer, target in
                     compositor.encode(into: commandBuffer, target: target, field: sim.trail,
-                                      physarumOpacity: settings.physarumOpacity, lifeOpacity: settings.lifeOpacity, ghostOpacity: 0)
+                                      physarumOpacity: settings.physarumOpacity, lifeOpacity: settings.lifeOpacity, ghostOpacity: 0,
+                                      rotation: fieldRotation(at: CACurrentMediaTime()), zoom: fieldZoom)
                 }
                 recordingFrames = recorder.frameCount
             } catch {
@@ -333,7 +356,35 @@ final class SimulationModel {
     /// the placement ghost, into `viewport` of `target`.
     func encodeDisplay(into commandBuffer: MTLCommandBuffer, target: MTLTexture, viewport: MTLViewport, background: MTLClearColor) {
         compositor.encode(into: commandBuffer, target: target, viewport: viewport, background: background, field: displayedField,
-                          physarumOpacity: settings.physarumOpacity, lifeOpacity: settings.lifeOpacity, ghostOpacity: 1)
+                          physarumOpacity: settings.physarumOpacity, lifeOpacity: settings.lifeOpacity, ghostOpacity: 1,
+                          rotation: fieldRotation(at: CACurrentMediaTime()), zoom: fieldZoom)
+    }
+
+    /// Whether Sweep at Top is turning the field.
+    private var isTurningField: Bool {
+        source == .audio && audioSettings.style == .radial && audioSettings.sweepAtTop && sweep != nil
+    }
+
+    /// While the field turns, it's magnified by √2 (and a hair, against rounding)
+    /// so the view's corners stay on the field at every angle and its edges never show.
+    private static let turningZoom = 2.squareRoot() * 1.001
+    private var fieldZoom: Double { isTurningField ? Self.turningZoom : 1 }
+
+    /// With Sweep at Top, the radial drawing shrinks by the zoom, so all of it,
+    /// to the outermost band, stays in view as the field turns.
+    private var radialScale: Double {
+        audioSettings.style == .radial && audioSettings.sweepAtTop && audioSettings.sweepBPM > 0 ? 1 / Self.turningZoom : 1
+    }
+
+    /// How far the field is turned on screen (radians counterclockwise): with Sweep
+    /// at Top, enough to bring the radial sweep to 12 o'clock, else none. Audio
+    /// updates come 30 times a second, so between them the sweep is carried on at
+    /// its speed, for a turn as smooth as the display.
+    private func fieldRotation(at time: CFTimeInterval) -> Double {
+        guard isTurningField, let sweep else { return 0 }
+        // Carried on at most a few updates' worth, should they stop coming.
+        let elapsed = min(max(0, time - sweep.time), 0.1)
+        return .pi / 2 - (sweep.angle + 2 * .pi * sweep.turnsPerSecond * elapsed)
     }
 
     // MARK: Editing
@@ -476,7 +527,7 @@ final class SimulationModel {
     /// permission the first time; if it can't start, the source stays as it was
     /// and a notice explains why.
     func setSource(_ newSource: SeedSource) async {
-        guard newSource != source, !isStartingSource else { return }
+        guard newSource != source, !isStartingSource, renderProgress == nil else { return }
         switch newSource {
         case .camera:
             await startCamera()
@@ -604,12 +655,14 @@ final class SimulationModel {
         movingCells = 0
         latestAudioLevel = 0
         detectedTempo = nil
+        sweep = nil
     }
 
     private var audioConfig: AudioConfig {
         AudioConfig(gridSize: settings.lifeSize, style: audioSettings.style, colors: audioSettings.colors, palette: audioColors,
                     threshold: Float(audioSettings.threshold), rangeDB: Float(audioSettings.rangeDB),
-                    distance: audioSettings.distance, gainDB: Float(audioSettings.gainDB), autoGain: audioSettings.autoGain,
+                    distance: audioSettings.distance, radiusScale: radialScale,
+                    gainDB: Float(audioSettings.gainDB), autoGain: audioSettings.autoGain,
                     sweepBPM: audioSettings.sweepBPM, spawn: spawnSettings, maxActors: settings.poolSize, seeding: settings.playing)
     }
 
@@ -619,6 +672,7 @@ final class SimulationModel {
         scheduler.enqueue(update.actors, stepsUntilNextTick: 1)
         pendingSeeds.append(contentsOf: update.seeds)
         compositor.setLife(update.texels)
+        sweep = update.sweep.map { ($0.angle, $0.turnsPerSecond, CACurrentMediaTime()) }
         movingCells = update.litCells
         latestAudioLevel = update.inputLevel
         // Observers hear every assignment, equal or not, and updates arrive 30 times a second.
@@ -692,10 +746,89 @@ final class SimulationModel {
         }
     }
 
+    // MARK: Rendering from an audio file
+
+    /// Renders a movie of what `audioURL` seeds, with its sound, into `url`. The
+    /// simulation runs one Physarum step per movie frame, each frame hearing its
+    /// own 1/30 s of the file, as fast as the GPU and encoder allow (not in real
+    /// time), so picture and sound stay in step. It starts from a clear field with
+    /// the current settings, and afterwards seeds from what it did before.
+    func renderMovie(audio audioURL: URL, to url: URL) async throws {
+        guard renderProgress == nil, recorder == nil, !isStartingSource else { return }
+        renderProgress = RenderProgress(done: 0, total: 0)
+        renderCancelled = false
+        let returnTo = source
+        defer { renderProgress = nil }
+
+        let audio = try await Task.detached { try AudioFileSamples(url: audioURL) }.value
+        let soundtrack = try await MovieRecorder.SoundtrackSource(url: audioURL)
+        if renderCancelled { throw CancellationError() }
+        let recorder = try MovieRecorder(url: url, context: context, soundtrack: soundtrack)
+
+        stopCamera()
+        stopAudio()
+        source = .audio
+        clearActors()
+        clearTrail()
+        clearFood()
+        pendingSeeds = []
+        let processor = AudioProcessor(seed: params.rngSeed)
+        let total = audio.frameCount
+        var frame = 0
+        do {
+            while frame < total {
+                if renderCancelled { throw CancellationError() }
+                // A slice of the main thread at a time, so the window stays responsive.
+                let sliceStart = CACurrentMediaTime()
+                while frame < total, !recorder.isBusy, CACurrentMediaTime() - sliceStart < 0.01 {
+                    try renderFrame(frame, of: audio, processor, recorder)
+                    frame += 1
+                }
+                renderProgress = RenderProgress(done: frame, total: total)
+                try await Task.sleep(for: .milliseconds(1))
+            }
+            try await recorder.finish()
+            lastSaved = url
+        } catch {
+            recorder.cancel()
+            await restoreSource(returnTo)
+            throw error
+        }
+        await restoreSource(returnTo)
+    }
+
+    /// Stops a render from an audio file, deleting the partial movie.
+    func cancelRender() {
+        renderCancelled = true
+    }
+
+    private func renderFrame(_ frame: Int, of audio: AudioFileSamples, _ processor: AudioProcessor, _ recorder: MovieRecorder) throws {
+        let (window, fresh) = audio.window(forFrame: frame, length: SpectrumAnalyzer.fftSize)
+        var config = audioConfig
+        config.seeding = true
+        receive(processor.process(window, fresh: fresh, sampleRate: audio.sampleRate, dt: 1 / Double(movieFPS), config))
+        physStep()
+        // At the sweep's own angle for this frame, not carried on by the wall clock.
+        let rotation = fieldRotation(at: sweep?.time ?? 0)
+        try recorder.addFrame { commandBuffer, target in
+            compositor.encode(into: commandBuffer, target: target, field: sim.trail,
+                              physarumOpacity: settings.physarumOpacity, lifeOpacity: settings.lifeOpacity, ghostOpacity: 0,
+                              rotation: rotation, zoom: fieldZoom)
+        }
+    }
+
+    private func restoreSource(_ previous: SeedSource) async {
+        sweep = nil
+        movingCells = 0
+        source = .life
+        life.edit { _ in } // Shows the Life board again.
+        if previous != .life { await setSource(previous) }
+    }
+
     // MARK: Recording
 
     func startRecording(to url: URL) {
-        guard recorder == nil else { return }
+        guard recorder == nil, renderProgress == nil else { return }
         do {
             let recorder = try MovieRecorder(url: url, context: context)
             self.recorder = recorder

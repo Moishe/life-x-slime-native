@@ -54,6 +54,7 @@ struct MovieConfig: Equatable {
 /// Records composited frames into an MP4 on disk, one frame per `addFrame`
 /// call at `movieFPS`. Frames are rendered straight into the encoder's pixel
 /// buffers by Metal and handed to AVFoundation once the GPU has drawn them.
+/// A soundtrack, if given, is copied in as AAC alongside, starting with the first frame.
 final class MovieRecorder {
     enum Failure: LocalizedError {
         case cannotEncode
@@ -79,6 +80,7 @@ final class MovieRecorder {
     private let context: MetalContext
     private let output: Output
     private let textureCache: CVMetalTextureCache
+    private let soundtrack: Soundtrack?
 
     /// The writer, its input and adaptor. Frames are appended only on `queue`.
     nonisolated private final class Output: @unchecked Sendable {
@@ -101,7 +103,19 @@ final class MovieRecorder {
         }
     }
 
-    init(url: URL, context: MetalContext) throws {
+    /// An audio file's track, with its asset (which the track holds only weakly).
+    nonisolated struct SoundtrackSource: @unchecked Sendable {
+        let asset: AVURLAsset
+        let track: AVAssetTrack
+
+        init(url: URL) async throws {
+            asset = AVURLAsset(url: url)
+            guard let track = try await asset.loadTracks(withMediaType: .audio).first else { throw AudioFileSamples.Failure.empty }
+            self.track = track
+        }
+    }
+
+    init(url: URL, context: MetalContext, soundtrack source: SoundtrackSource? = nil) throws {
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: url.path) { try fileManager.removeItem(at: url) }
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
@@ -118,8 +132,10 @@ final class MovieRecorder {
         ])
         guard writer.canAdd(input) else { throw Failure.cannotStart(writer.error) }
         writer.add(input)
+        let soundtrack = try source.map { try Soundtrack(source: $0, writer: writer) }
         guard writer.startWriting() else { throw Failure.cannotStart(writer.error) }
         writer.startSession(atSourceTime: .zero)
+        try soundtrack?.start()
 
         var cache: CVMetalTextureCache?
         CVMetalTextureCacheCreate(nil, nil, context.device, nil, &cache)
@@ -130,6 +146,7 @@ final class MovieRecorder {
         self.context = context
         output = Output(writer: writer, input: input, adaptor: adaptor)
         textureCache = cache
+        self.soundtrack = soundtrack
     }
 
     /// True while the encoder is behind; callers should wait before adding frames.
@@ -179,6 +196,9 @@ final class MovieRecorder {
         let output = output
         await withCheckedContinuation { continuation in output.queue.async { continuation.resume() } }
         output.input.markAsFinished()
+        // After the video's marked finished: the writer interleaves the tracks, so it
+        // may hold the soundtrack back until it knows no more frames are coming.
+        if let soundtrack { await soundtrack.finished() }
         await withCheckedContinuation { continuation in
             output.writer.finishWriting { continuation.resume() }
         }
@@ -187,7 +207,80 @@ final class MovieRecorder {
 
     /// Abandons the recording and deletes the partial file.
     func cancel() {
+        soundtrack?.cancel()
         output.writer.cancelWriting()
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Copies an audio track into the movie as AAC, as fast as the writer takes it, on its own queue.
+    nonisolated private final class Soundtrack: @unchecked Sendable {
+        private let reader: AVAssetReader
+        private let output: AVAssetReaderTrackOutput
+        private let input: AVAssetWriterInput
+        private let queue = DispatchQueue(label: "movie soundtrack")
+        private let done = DispatchGroup()
+        // Confined to `queue`.
+        private var isDone = false
+
+        static let sampleRate = 48_000
+        static let channels = 2
+
+        init(source: SoundtrackSource, writer: AVAssetWriter) throws {
+            reader = try AVAssetReader(asset: source.asset)
+            output = AVAssetReaderTrackOutput(track: source.track, outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: Self.sampleRate,
+                AVNumberOfChannelsKey: Self.channels,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+            ])
+            guard reader.canAdd(output) else { throw Failure.cannotStart(reader.error) }
+            reader.add(output)
+            input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: Self.sampleRate,
+                AVNumberOfChannelsKey: Self.channels,
+                AVEncoderBitRateKey: 256_000,
+            ])
+            input.expectsMediaDataInRealTime = false
+            guard writer.canAdd(input) else { throw Failure.cannotStart(writer.error) }
+            writer.add(input)
+        }
+
+        /// Starts copying; call once the writer has started.
+        func start() throws {
+            guard reader.startReading() else { throw Failure.cannotStart(reader.error) }
+            done.enter()
+            input.requestMediaDataWhenReady(on: queue) { [self] in
+                while !isDone && input.isReadyForMoreMediaData {
+                    guard let buffer = output.copyNextSampleBuffer(), input.append(buffer) else {
+                        finish()
+                        return
+                    }
+                }
+            }
+        }
+
+        /// Waits until the whole track has been handed to the writer.
+        func finished() async {
+            await withCheckedContinuation { continuation in done.notify(queue: queue) { continuation.resume() } }
+        }
+
+        func cancel() {
+            queue.async { [self] in
+                reader.cancelReading()
+                finish()
+            }
+        }
+
+        // On `queue`.
+        private func finish() {
+            guard !isDone else { return }
+            isDone = true
+            input.markAsFinished()
+            done.leave()
+        }
     }
 }

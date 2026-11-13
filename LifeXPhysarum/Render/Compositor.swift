@@ -70,11 +70,14 @@ final class Compositor {
     }
 
     /// Encodes the composite into `target`, clearing it to `background` first.
-    /// When `viewport` is given the field is drawn into just that region.
+    /// When `viewport` is given the field is drawn into just that region. The field
+    /// is turned `rotation` radians counterclockwise and magnified `zoom` times
+    /// about its center; anything off the field shows the background.
     func encode(
         into commandBuffer: MTLCommandBuffer, target: MTLTexture, viewport: MTLViewport? = nil,
         background: MTLClearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1),
-        field: MTLTexture, physarumOpacity: Double, lifeOpacity: Double, ghostOpacity: Double
+        field: MTLTexture, physarumOpacity: Double, lifeOpacity: Double, ghostOpacity: Double, rotation: Double = 0,
+        zoom: Double = 1
     ) {
         uploadPending(commandBuffer)
         let pass = MTLRenderPassDescriptor()
@@ -90,7 +93,8 @@ final class Compositor {
             physarumOpacity: Float(physarumOpacity), lifeOpacity: Float(lifeOpacity),
             ghostOpacity: Float(ghostOpacity), relief: Float(relief.relief), heightScale: Float(relief.reliefHeight),
             lightX: Float(cos(relief.lightAngle) * cos(elevation)), lightY: Float(sin(relief.lightAngle) * cos(elevation)),
-            lightZ: Float(sin(elevation)), fieldWidth: UInt32(fieldWidth), fieldHeight: UInt32(fieldHeight), pad0: 0, pad1: 0)
+            lightZ: Float(sin(elevation)), fieldWidth: UInt32(fieldWidth), fieldHeight: UInt32(fieldHeight),
+            rotation: Float(rotation), zoom: Float(zoom))
         encoder.setRenderPipelineState(pipeline(for: target.pixelFormat))
         encoder.setFragmentBytes(&params, length: MemoryLayout<CompositeParams>.stride, index: 0)
         encoder.setFragmentBuffer(height, offset: 0, index: 1)

@@ -65,6 +65,25 @@ extension SimulationModel {
         await exportImages(to: url.appending(path: url.lastPathComponent))
     }
 
+    /// Asks for an audio file and where to save the movie, then renders it
+    /// (or, while one is rendering, stops it).
+    func renderMovieWithPanel() async {
+        if renderProgress != nil {
+            cancelRender()
+            return
+        }
+        guard let audio = await FilePanels.open(title: "Render Movie from Audio File", types: [.audio]),
+              let url = await FilePanels.save(title: "Save Movie", name: audio.deletingPathExtension().lastPathComponent + ".mp4",
+                                              types: [.mpeg4Movie])
+        else { return }
+        do {
+            try await renderMovie(audio: audio, to: url)
+        } catch is CancellationError {
+        } catch {
+            notice = Notice(title: "Couldn’t render “\(audio.lastPathComponent)”", message: error.localizedDescription)
+        }
+    }
+
     func toggleRecordingWithPanel() async {
         if isRecording {
             await stopRecording()

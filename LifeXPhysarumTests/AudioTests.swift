@@ -168,6 +168,17 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         #expect(canvas[16, 16] == nil)
     }
 
+    @Test func radiusScaleShrinksTheRadialDrawing() {
+        var bands = [Float](repeating: 0, count: 16)
+        bands[15] = 0.8 // the outermost band
+        var d = drawing(.radial)
+        d.radiusScale = 0.5
+        let canvas = drawAudio(frame([], bands: bands), d, size: 32)
+        // Band 15 of 16 sits at radius 15.5 of 8 cells: 7.75.
+        #expect(canvas[23, 16] != nil && canvas[16, 8] != nil)
+        #expect((0..<32).allSatisfy { canvas[$0, 2] == nil && canvas[$0, 29] == nil })
+    }
+
     @Test func onlyBandsWithinTheRangeOfTheLoudestLight() {
         var bands = [Float](repeating: 0.5, count: 16)
         bands[3] = 0.9

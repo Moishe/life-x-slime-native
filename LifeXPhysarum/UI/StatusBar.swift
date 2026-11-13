@@ -19,6 +19,18 @@ struct StatusBar: View {
                 .help("Recording: one movie frame per Physarum step, at 30 fps")
                 Divider().frame(height: 12)
             }
+            if let progress = model.renderProgress {
+                Label {
+                    Text(renderStatus(progress))
+                        .monospacedDigit()
+                } icon: {
+                    Image(systemName: "film").foregroundStyle(.red)
+                        .symbolEffect(.pulse, options: .repeating)
+                }
+                .foregroundStyle(.primary)
+                .help("Rendering a movie from an audio file, one frame per 1/30 s of sound (⌥⌘R stops it)")
+                Divider().frame(height: 12)
+            }
             // Drops the insert rates, then the frame rates, when the window is narrow.
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 14) { rates(r); counts(r); inserts(r) }

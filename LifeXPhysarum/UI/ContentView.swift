@@ -97,6 +97,7 @@ struct ContentView: View {
                       systemImage: model.isRecording ? "stop.circle.fill" : "record.circle")
             }
             .tint(model.isRecording ? .red : nil)
+            .disabled(model.renderProgress != nil)
             .help(model.isRecording ? "Stop and save the movie (⇧⌘R)" : "Record the mix to an MP4 movie (⇧⌘R)")
         }
         ToolbarItem(placement: .primaryAction) {
