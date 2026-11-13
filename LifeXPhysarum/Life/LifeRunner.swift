@@ -27,6 +27,7 @@ nonisolated final class LifeRunner: @unchecked Sendable {
     private var sequence = 0
     private let random: ReseedableRng
     private var colors: [SIMD3<Float>]
+    private var startedTick: Update?
     private let tickPending = Mutex(false)
 
     init(size: Int, seed: Int, colors: [SIMD3<Float>] = paletteColors("rainbow", count: 8),
@@ -55,6 +56,22 @@ nonisolated final class LifeRunner: @unchecked Sendable {
     /// spawns must land on the step they belong to).
     func tickNow(spawn: SpawnSettings, maxActors: Int) -> Update {
         queue.sync { runTick(spawn: spawn, maxActors: maxActors) }
+    }
+
+    /// Starts a generation on Life's queue without delivering it; `takeStartedTick`
+    /// collects it. Recording uses this to run a generation during the steps before
+    /// it's due, instead of stalling the main thread on `tickNow`.
+    func startTick(spawn: SpawnSettings, maxActors: Int) {
+        queue.async { self.startedTick = self.runTick(spawn: spawn, maxActors: maxActors) }
+    }
+
+    /// The generation `startTick` began, waiting for it if it's still running;
+    /// nil if none was started.
+    func takeStartedTick() -> Update? {
+        queue.sync {
+            defer { startedTick = nil }
+            return startedTick
+        }
     }
 
     /// Changes the board. The change happens after anything already queued.

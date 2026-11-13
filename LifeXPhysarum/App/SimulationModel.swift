@@ -256,6 +256,8 @@ final class SimulationModel {
 
     /// Movie pacing: every Physarum step becomes one frame, and Life ticks every
     /// `stepsPerLifeTick` steps, so the movie runs at the simulation's own speed.
+    /// Each generation is computed on Life's queue ahead of its step (see
+    /// `LifeRunner.startTick`), so ticking doesn't stall drawing.
     /// While the encoder is behind, steps are skipped rather than frames dropped.
     private func recordingFrame(_ dtMs: Double) {
         guard let recorder else { return }
@@ -263,7 +265,9 @@ final class SimulationModel {
         while steps > 0 && !recorder.isBusy {
             steps -= 1
             if settings.playing && source == .life && recordingLifeTicker.step(stepsPerTick: stepsPerLifeTick) {
-                apply(life.tickNow(spawn: spawnSettings, maxActors: settings.poolSize))
+                // Normally started during the previous steps, so this rarely waits.
+                apply(life.takeStartedTick() ?? life.tickNow(spawn: spawnSettings, maxActors: settings.poolSize))
+                life.startTick(spawn: spawnSettings, maxActors: settings.poolSize)
             }
             physStep()
             do {
@@ -691,6 +695,7 @@ final class SimulationModel {
             let recorder = try MovieRecorder(url: url, context: context)
             self.recorder = recorder
             recordingLifeTicker.reset()
+            if settings.playing && source == .life { life.startTick(spawn: spawnSettings, maxActors: settings.poolSize) }
             recordingFrames = 0
             if let notice = recorder.config.notice {
                 self.notice = Notice(title: "Recording at reduced quality", message: notice)
@@ -704,6 +709,7 @@ final class SimulationModel {
         guard let recorder else { return }
         self.recorder = nil
         recordingFrames = nil
+        applyStartedTick()
         lifeClock.reset()
         physClock.reset()
         do {
@@ -718,7 +724,13 @@ final class SimulationModel {
         recorder?.cancel()
         recorder = nil
         recordingFrames = nil
+        applyStartedTick()
         notice = Notice(title: "Recording stopped", message: error.localizedDescription)
+    }
+
+    /// Takes in the generation recording started ahead, so its births aren't lost.
+    private func applyStartedTick() {
+        if let update = life.takeStartedTick(), source == .life { apply(update) }
     }
 
     // MARK: Readouts

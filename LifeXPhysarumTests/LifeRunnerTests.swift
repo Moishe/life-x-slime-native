@@ -91,4 +91,17 @@ import Testing
         #expect(collector.updates.last?.gridSize == 32)
         #expect(collector.updates.last?.organismCount == 0)
     }
+
+    @Test func aStartedTickIsCollectedOnceAndNotDelivered() async {
+        let collector = Collector()
+        let runner = LifeRunner(size: 16, seed: 1) { collector.receive($0) }
+        runner.edit { $0.place(Pattern.named("blinker")!, x: 5, y: 5, quarterTurns: 0) }
+        #expect(runner.takeStartedTick() == nil)
+        runner.startTick(spawn: spawn, maxActors: 1000)
+        let started = runner.takeStartedTick()
+        #expect(started?.isTick == true && started?.actors.count == 8)
+        #expect(runner.takeStartedTick() == nil)
+        await collector.wait(for: 1)
+        #expect(collector.updates.allSatisfy { !$0.isTick })
+    }
 }
