@@ -69,19 +69,23 @@ nonisolated struct AudioDrawing {
 nonisolated struct AudioCanvas {
     let size: Int
     private(set) var cells: [SIMD3<Float>?]
+    /// The lit cells' indices into `cells`, in the order they were first lit.
+    private(set) var litIndices: [Int] = []
 
     init(size: Int) {
         self.size = size
         cells = Array(repeating: nil, count: size * size)
     }
 
-    var litCount: Int { cells.reduce(0) { $0 + ($1 == nil ? 0 : 1) } }
+    var litCount: Int { litIndices.count }
 
     subscript(x: Int, y: Int) -> SIMD3<Float>? { cells[y * size + x] }
 
     mutating func plot(_ x: Int, _ y: Int, _ color: SIMD3<Float>) {
         guard x >= 0, y >= 0, x < size, y < size else { return }
-        cells[y * size + x] = color
+        let i = y * size + x
+        if cells[i] == nil { litIndices.append(i) }
+        cells[i] = color
     }
 
     /// Lights the cells on a straight line from one point to another (in cells),

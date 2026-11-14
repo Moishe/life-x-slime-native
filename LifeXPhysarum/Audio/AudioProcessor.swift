@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 
 /// What the audio pipeline needs from the interface, read once per frame.
@@ -65,9 +66,19 @@ nonisolated final class AudioProcessor {
     private let rng: Rng
     private var size = 0
     private var lit: [SIMD3<Float>?] = []
+    /// The lit cells' indices into `lit`, ascending.
+    private var litIndices: [Int] = []
     private var glow: [Float] = []
+    /// Scratch for turning `glow` into texels.
+    private var texelScratch: [Float] = []
     /// Each cell's angle around the center, as the radial sweep measures it (0–2π).
     private var cellAngles: [Double] = []
+    /// The cells grouped by angle, `angleBuckets` groups to a turn: bucket b's cells
+    /// are `bucketCells[bucketStarts[b]..<bucketStarts[b + 1]]`. The sweep looks up
+    /// the wedge it passes over here, instead of testing every cell each frame.
+    private var bucketStarts: [Int] = []
+    private var bucketCells: [Int32] = []
+    private static let angleBuckets = 1024
     /// Each cell's distance from the center, in cells.
     private var cellRadii: [Double] = []
     private var bands: [Float] = []
@@ -87,7 +98,9 @@ nonisolated final class AudioProcessor {
         if size != self.size {
             self.size = size
             lit = Array(repeating: nil, count: n)
+            litIndices = []
             glow = [Float](repeating: 0, count: n * 4)
+            texelScratch = [Float](repeating: 0, count: n * 4)
             let c = Double(size) / 2
             let offsets = (0..<n).map { (i: Int) -> SIMD2<Double> in
                 let x = Double(i % size) + 0.5, y = Double(i / size) + 0.5
@@ -98,6 +111,7 @@ nonisolated final class AudioProcessor {
                 return a < 0 ? a + 2 * .pi : a
             }
             cellRadii = offsets.map { ($0 * $0).sum().squareRoot() }
+            (bucketStarts, bucketCells) = Self.bucketByAngle(cellAngles)
             bands = []
         }
 
@@ -139,23 +153,33 @@ nonisolated final class AudioProcessor {
         let sweeping = config.style == .radial && turnsPerSecond > 0
         let swept = sweepTo - lastAngle
         let fade = sweeping ? Float(pow(Self.sweepFade, swept / (2 * .pi))) : Self.afterglow
+        // At the largest grid that's a million cells a frame, so the per-cell work runs
+        // in Accelerate or visits only the cells that matter, quick even unoptimized.
+        glow.withUnsafeMutableBufferPointer { glow in
+            var fade = fade
+            vDSP_vsmul(glow.baseAddress! + 3, 4, &fade, glow.baseAddress! + 3, 4, vDSP_Length(n))
+            if sweeping { forEachCell(sweptFrom: lastAngle, by: swept) { glow[$0 * 4 + 3] = 0 } }
+        }
         var births: [SeedCell] = [], deaths: [SeedCell] = []
-        for i in 0..<n {
-            if sweeping, (cellAngles[i] - lastAngle + 2 * .pi).truncatingRemainder(dividingBy: 2 * .pi) < swept {
-                glow[i * 4 + 3] = 0
-            } else {
-                glow[i * 4 + 3] *= fade
-            }
-            if let color = canvas.cells[i] {
-                births.append(SeedCell(x: i % size, y: i / size, color: color))
-                glow[i * 4] = color.x; glow[i * 4 + 1] = color.y; glow[i * 4 + 2] = color.z; glow[i * 4 + 3] = 1
-            } else if let color = lit[i] {
-                deaths.append(SeedCell(x: i % size, y: i / size, color: color))
-            }
+        let nowLit = canvas.litIndices.sorted()
+        for i in nowLit {
+            let color = canvas.cells[i]!
+            births.append(SeedCell(x: i % size, y: i / size, color: color))
+            glow[i * 4] = color.x; glow[i * 4 + 1] = color.y; glow[i * 4 + 2] = color.z; glow[i * 4 + 3] = 1
+        }
+        for i in litIndices where canvas.cells[i] == nil {
+            deaths.append(SeedCell(x: i % size, y: i / size, color: lit[i]!))
         }
         lit = canvas.cells
+        litIndices = nowLit
 
-        var update = AudioUpdate(gridSize: size, texels: glow.map { UInt8(min(255, max(0, $0 * 255)).rounded()) },
+        var texels = [UInt8](repeating: 0, count: n * 4)
+        var low: Float = 0, high: Float = 1, scale: Float = 255, half: Float = 0.5
+        vDSP_vclip(glow, 1, &low, &high, &texelScratch, 1, vDSP_Length(n * 4))
+        vDSP_vsmsa(texelScratch, 1, &scale, &half, &texelScratch, 1, vDSP_Length(n * 4))
+        vDSP_vfixu8(texelScratch, 1, &texels, 1, vDSP_Length(n * 4)) // truncates, so with the half added it rounds
+
+        var update = AudioUpdate(gridSize: size, texels: texels,
                                  litCells: births.count, inputLevel: inputLevel, tempo: tempo,
                                  sweep: sweeping ? (angle, turnsPerSecond) : nil)
         if config.seeding {
@@ -169,5 +193,33 @@ nonisolated final class AudioProcessor {
             update.seeds = deathsToFoodSeeds(deaths)
         }
         return update
+    }
+
+    /// Calls `body` with each cell whose angle lies in [from, from + by), turning past 2π.
+    private func forEachCell(sweptFrom from: Double, by swept: Double, _ body: (Int) -> Void) {
+        let buckets = Self.angleBuckets, perRadian = Double(buckets) / (2 * .pi)
+        let first = Int(from * perRadian), last = Int(((from + swept) * perRadian).rounded(.up))
+        for b in first..<min(last, first + buckets) {
+            let bucket = b % buckets
+            for k in bucketStarts[bucket]..<bucketStarts[bucket + 1] {
+                let i = Int(bucketCells[k])
+                if (cellAngles[i] - from + 2 * .pi).truncatingRemainder(dividingBy: 2 * .pi) < swept { body(i) }
+            }
+        }
+    }
+
+    /// Groups cells by angle (a counting sort), for `forEachCell(sweptFrom:by:)`.
+    private static func bucketByAngle(_ angles: [Double]) -> (starts: [Int], cells: [Int32]) {
+        let perRadian = Double(angleBuckets) / (2 * .pi)
+        let bucketOf = angles.map { min(angleBuckets - 1, Int($0 * perRadian)) }
+        var starts = [Int](repeating: 0, count: angleBuckets + 1)
+        for b in bucketOf { starts[b + 1] += 1 }
+        for b in 0..<angleBuckets { starts[b + 1] += starts[b] }
+        var next = starts, cells = [Int32](repeating: 0, count: angles.count)
+        for (i, b) in bucketOf.enumerated() {
+            cells[next[b]] = Int32(i)
+            next[b] += 1
+        }
+        return (starts, cells)
     }
 }
