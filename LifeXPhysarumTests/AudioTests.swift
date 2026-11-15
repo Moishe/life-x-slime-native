@@ -100,8 +100,8 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
             #expect(rows(x).contains { r in rows(x - 1).contains { abs($0 - r) <= 1 } })
         }
         // It swings well above and below the middle.
-        #expect(canvas.cells.indices.contains { canvas.cells[$0] != nil && $0 / 32 < 6 })
-        #expect(canvas.cells.indices.contains { canvas.cells[$0] != nil && $0 / 32 > 25 })
+        #expect(canvas.litIndices.contains { $0 / 32 < 6 })
+        #expect(canvas.litIndices.contains { $0 / 32 > 25 })
     }
 
     @Test func aTraceUnderTheThresholdDrawsNothing() {
@@ -115,7 +115,7 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         var d = drawing(.waveform, colors: .pitch)
         d.palette = scale
         let canvas = drawAudio(frame(sine(200, amplitude: 0.8, count: 2400), note: 7), d, size: 16)
-        #expect(canvas.litCount > 0 && canvas.cells.compactMap { $0 }.allSatisfy { $0 == scale[7] })
+        #expect(canvas.litCount > 0 && canvas.litIndices.allSatisfy { canvas[index: $0] == scale[7] })
     }
 
     @Test func aRingCirclesTheCenter() {
@@ -189,8 +189,8 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         let litColumns = (0..<16).filter { x in (0..<16).contains { canvas[x, $0] != nil } }
         #expect(litColumns == [3, 12])
         d.style = .radial
-        #expect(drawAudio(frame([], bands: bands), d, size: 32).cells.compactMap { $0 }.count
-                < drawAudio(frame([], bands: bands), drawing(.radial), size: 32).cells.compactMap { $0 }.count / 4)
+        #expect(drawAudio(frame([], bands: bands), d, size: 32).litCount
+                < drawAudio(frame([], bands: bands), drawing(.radial), size: 32).litCount / 4)
     }
 
     @Test func loudnessDistanceDrawsLoudBandsFurtherOut() {
@@ -253,9 +253,23 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         let processor = AudioProcessor(seed: 1)
         let lit = processor.process(sine(400, amplitude: 0.8), sampleRate: 48_000, dt: 1 / 30, config())
         let dark = processor.process(silence, sampleRate: 48_000, dt: 1 / 30, config())
-        let i = stride(from: 3, to: lit.texels.count, by: 4).first { lit.texels[$0] == 255 }!
-        #expect(dark.texels[i] == UInt8((255 * AudioProcessor.afterglow).rounded()))
-        #expect(dark.texels[i - 3...i - 1] == lit.texels[i - 3...i - 1])
+        let i = stride(from: 3, to: lit.texels!.count, by: 4).first { lit.texels![$0] == 255 }!
+        #expect(dark.texels![i] == UInt8((255 * AudioProcessor.afterglow).rounded()))
+        #expect(dark.texels![i - 3...i - 1] == lit.texels![i - 3...i - 1])
+    }
+
+    @Test func skippingThePictureSpawnsTheSameAndRedrawsFromClear() {
+        var hidden = config()
+        hidden.drawsPicture = false
+        let drawn = AudioProcessor(seed: 1), skipped = AudioProcessor(seed: 1)
+        let a = drawn.process(sine(400, amplitude: 0.8), sampleRate: 48_000, dt: 1 / 30, config())
+        let b = skipped.process(sine(400, amplitude: 0.8), sampleRate: 48_000, dt: 1 / 30, hidden)
+        #expect(b.texels == nil && a.texels != nil)
+        #expect(b.litCells == a.litCells && b.actors.count == a.actors.count && b.seeds.count == a.seeds.count)
+        // Drawn again after silence, it shows nothing left over from the skipped frame.
+        let after = skipped.process(silence, sampleRate: 48_000, dt: 1 / 30, config())
+        #expect(after.texels!.allSatisfy { $0 == 0 })
+        #expect(after.seeds.count == a.litCells) // the skipped frame's cells still leave food
     }
 
     @Test func pausedSoundIsDrawnButSpawnsNothing() {
@@ -283,7 +297,7 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         let processor = AudioProcessor(seed: 1)
         // A quarter turn a second: the first quarter second draws a sixteenth of the way round, at angle 0 (the right).
         let drawn = processor.process(sine(1000), sampleRate: 48_000, dt: 0.25, c)
-        let alpha = { (u: AudioUpdate, x: Int, y: Int) in u.texels[(y * 16 + x) * 4 + 3] }
+        let alpha = { (u: AudioUpdate, x: Int, y: Int) in u.texels![(y * 16 + x) * 4 + 3] }
         let x = try #require((8..<16).first { alpha(drawn, $0, 8) == 255 })
         // A quarter turn later, silent, it's still there, dimmed by a quarter turn's fade.
         var later = drawn

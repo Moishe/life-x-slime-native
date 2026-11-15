@@ -65,27 +65,29 @@ nonisolated struct AudioDrawing {
     var sweepTo: Double = 0
 }
 
-/// A size × size grid of lit cells and their colors, top-left origin.
+/// A size × size grid of lit cells and their colors, top-left origin. Sparse: a
+/// frame lights a few hundred cells of up to a million, so only those are stored.
 nonisolated struct AudioCanvas {
     let size: Int
-    private(set) var cells: [SIMD3<Float>?]
-    /// The lit cells' indices into `cells`, in the order they were first lit.
+    private var colors: [Int: SIMD3<Float>] = [:]
+    /// The lit cells' indices (y × size + x), in the order they were first lit.
     private(set) var litIndices: [Int] = []
 
     init(size: Int) {
         self.size = size
-        cells = Array(repeating: nil, count: size * size)
     }
 
     var litCount: Int { litIndices.count }
 
-    subscript(x: Int, y: Int) -> SIMD3<Float>? { cells[y * size + x] }
+    subscript(x: Int, y: Int) -> SIMD3<Float>? { colors[y * size + x] }
+
+    /// The color of the cell at `index` (y × size + x), if it's lit.
+    subscript(index index: Int) -> SIMD3<Float>? { colors[index] }
 
     mutating func plot(_ x: Int, _ y: Int, _ color: SIMD3<Float>) {
         guard x >= 0, y >= 0, x < size, y < size else { return }
         let i = y * size + x
-        if cells[i] == nil { litIndices.append(i) }
-        cells[i] = color
+        if colors.updateValue(color, forKey: i) == nil { litIndices.append(i) }
     }
 
     /// Lights the cells on a straight line from one point to another (in cells),

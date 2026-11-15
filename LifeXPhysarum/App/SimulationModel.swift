@@ -671,7 +671,7 @@ final class SimulationModel {
         guard source == .audio, update.gridSize == compositor.gridSize else { return }
         scheduler.enqueue(update.actors, stepsUntilNextTick: 1)
         pendingSeeds.append(contentsOf: update.seeds)
-        compositor.setLife(update.texels)
+        if let texels = update.texels { compositor.setLife(texels) }
         sweep = update.sweep.map { ($0.angle, $0.turnsPerSecond, CACurrentMediaTime()) }
         movingCells = update.litCells
         latestAudioLevel = update.inputLevel
@@ -806,6 +806,8 @@ final class SimulationModel {
         let (window, fresh) = audio.window(forFrame: frame, length: SpectrumAnalyzer.fftSize)
         var config = audioConfig
         config.seeding = true
+        // Nothing in the movie shows the drawing with the Life layer hidden, so skip it.
+        config.drawsPicture = settings.lifeOpacity > 0
         receive(processor.process(window, fresh: fresh, sampleRate: audio.sampleRate, dt: 1 / Double(movieFPS), config))
         physStep()
         // At the sweep's own angle for this frame, not carried on by the wall clock.

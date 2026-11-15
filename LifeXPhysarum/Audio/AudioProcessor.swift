@@ -15,6 +15,9 @@ nonisolated struct AudioConfig: Sendable {
     var distance = AudioDistance.pitch
     /// Radial: the outermost radius, as a fraction of half the grid.
     var radiusScale = 1.0
+    /// False when nothing shows the drawing (a render with the Life layer hidden):
+    /// its fading picture isn't kept, and updates carry no texels, only spawns and food.
+    var drawsPicture = true
     /// Gain in decibels, applied after automatic gain if that's on.
     var gainDB: Float = 0
     var autoGain = true
@@ -29,8 +32,9 @@ nonisolated struct AudioConfig: Sendable {
 /// One processed moment of sound, for the main actor.
 nonisolated struct AudioUpdate: Sendable {
     var gridSize: Int
-    /// The drawing, fading behind as it moves, shown in place of the Life layer.
-    var texels: [UInt8]
+    /// The drawing, fading behind as it moves, shown in place of the Life layer;
+    /// nil when the config doesn't draw the picture.
+    var texels: [UInt8]?
     var actors: [Actor] = []
     var seeds: [FoodSeed] = []
     var litCells = 0
@@ -65,9 +69,12 @@ nonisolated final class AudioProcessor {
     private let tempoDetector = TempoDetector()
     private let rng: Rng
     private var size = 0
-    private var lit: [SIMD3<Float>?] = []
-    /// The lit cells' indices into `lit`, ascending.
+    /// Last frame's lit cells (by index, y × size + x) and their colors.
+    private var lit: [Int: SIMD3<Float>] = [:]
+    /// `lit`'s indices, ascending.
     private var litIndices: [Int] = []
+    /// False once a frame went undrawn: `glow` no longer shows the drawing and is cleared before it's next used.
+    private var glowIsCurrent = true
     private var glow: [Float] = []
     /// Scratch for turning `glow` into texels.
     private var texelScratch: [Float] = []
@@ -97,7 +104,7 @@ nonisolated final class AudioProcessor {
         let size = config.gridSize, n = size * size
         if size != self.size {
             self.size = size
-            lit = Array(repeating: nil, count: n)
+            lit = [:]
             litIndices = []
             glow = [Float](repeating: 0, count: n * 4)
             texelScratch = [Float](repeating: 0, count: n * 4)
@@ -153,35 +160,23 @@ nonisolated final class AudioProcessor {
         let sweeping = config.style == .radial && turnsPerSecond > 0
         let swept = sweepTo - lastAngle
         let fade = sweeping ? Float(pow(Self.sweepFade, swept / (2 * .pi))) : Self.afterglow
-        // At the largest grid that's a million cells a frame, so the per-cell work runs
-        // in Accelerate or visits only the cells that matter, quick even unoptimized.
-        glow.withUnsafeMutableBufferPointer { glow in
-            var fade = fade
-            vDSP_vsmul(glow.baseAddress! + 3, 4, &fade, glow.baseAddress! + 3, 4, vDSP_Length(n))
-            if sweeping { forEachCell(sweptFrom: lastAngle, by: swept) { glow[$0 * 4 + 3] = 0 } }
-        }
         var births: [SeedCell] = [], deaths: [SeedCell] = []
         let nowLit = canvas.litIndices.sorted()
-        for i in nowLit {
-            let color = canvas.cells[i]!
-            births.append(SeedCell(x: i % size, y: i / size, color: color))
-            glow[i * 4] = color.x; glow[i * 4 + 1] = color.y; glow[i * 4 + 2] = color.z; glow[i * 4 + 3] = 1
-        }
-        for i in litIndices where canvas.cells[i] == nil {
+        for i in nowLit { births.append(SeedCell(x: i % size, y: i / size, color: canvas[index: i]!)) }
+        for i in litIndices where canvas[index: i] == nil {
             deaths.append(SeedCell(x: i % size, y: i / size, color: lit[i]!))
         }
-        lit = canvas.cells
+        lit = Dictionary(uniqueKeysWithValues: births.map { ($0.y * size + $0.x, $0.color) })
         litIndices = nowLit
 
-        var texels = [UInt8](repeating: 0, count: n * 4)
-        var low: Float = 0, high: Float = 1, scale: Float = 255, half: Float = 0.5
-        vDSP_vclip(glow, 1, &low, &high, &texelScratch, 1, vDSP_Length(n * 4))
-        vDSP_vsmsa(texelScratch, 1, &scale, &half, &texelScratch, 1, vDSP_Length(n * 4))
-        vDSP_vfixu8(texelScratch, 1, &texels, 1, vDSP_Length(n * 4)) // truncates, so with the half added it rounds
-
-        var update = AudioUpdate(gridSize: size, texels: texels,
+        var update = AudioUpdate(gridSize: size, texels: nil,
                                  litCells: births.count, inputLevel: inputLevel, tempo: tempo,
                                  sweep: sweeping ? (angle, turnsPerSecond) : nil)
+        if config.drawsPicture {
+            update.texels = picture(births, n: n, fade: fade, sweptFrom: sweeping ? lastAngle : nil, by: swept)
+        } else {
+            glowIsCurrent = false
+        }
         if config.seeding {
             if sweeping {
                 // Near the center a cell spans more angle than a frame's sweep, so it stays lit for
@@ -193,6 +188,32 @@ nonisolated final class AudioProcessor {
             update.seeds = deathsToFoodSeeds(deaths)
         }
         return update
+    }
+
+    /// Fades the drawing (clearing the wedge a sweep passed over, from `sweptFrom`),
+    /// lights `births` in it, and returns it as texels. At the largest grid that's a
+    /// million cells a frame, so the per-cell work runs in Accelerate, or visits only
+    /// the cells that matter, to stay quick even unoptimized.
+    private func picture(_ births: [SeedCell], n: Int, fade: Float, sweptFrom: Double?, by swept: Double) -> [UInt8] {
+        if !glowIsCurrent {
+            glow = [Float](repeating: 0, count: n * 4)
+            glowIsCurrent = true
+        }
+        glow.withUnsafeMutableBufferPointer { glow in
+            var fade = fade
+            vDSP_vsmul(glow.baseAddress! + 3, 4, &fade, glow.baseAddress! + 3, 4, vDSP_Length(n))
+            if let sweptFrom { forEachCell(sweptFrom: sweptFrom, by: swept) { glow[$0 * 4 + 3] = 0 } }
+        }
+        for cell in births {
+            let g = (cell.y * size + cell.x) * 4
+            glow[g] = cell.color.x; glow[g + 1] = cell.color.y; glow[g + 2] = cell.color.z; glow[g + 3] = 1
+        }
+        var texels = [UInt8](repeating: 0, count: n * 4)
+        var low: Float = 0, high: Float = 1, scale: Float = 255, half: Float = 0.5
+        vDSP_vclip(glow, 1, &low, &high, &texelScratch, 1, vDSP_Length(n * 4))
+        vDSP_vsmsa(texelScratch, 1, &scale, &half, &texelScratch, 1, vDSP_Length(n * 4))
+        vDSP_vfixu8(texelScratch, 1, &texels, 1, vDSP_Length(n * 4)) // truncates, so with the half added it rounds
+        return texels
     }
 
     /// Calls `body` with each cell whose angle lies in [from, from + by), turning past 2π.
