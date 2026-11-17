@@ -71,9 +71,10 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
 }
 
 @Suite struct AudioDrawingTests {
-    func frame(_ samples: [Float], bands: [Float] = [], bandNotes: [Int]? = nil, note: Int? = nil) -> AudioFrame {
+    func frame(_ samples: [Float], bands: [Float] = [], bandNotes: [Int]? = nil, rightBands: [Float]? = nil, note: Int? = nil) -> AudioFrame {
         AudioFrame(samples: samples, traceLength: samples.count / 2, bands: bands,
-                   bandNotes: bandNotes ?? bands.indices.map { $0 % 12 }, note: note)
+                   bandNotes: bandNotes ?? bands.indices.map { $0 % 12 },
+                   rightBands: rightBands, rightBandNotes: rightBands.map { $0.indices.map { $0 % 12 } }, note: note)
     }
 
     let scale: [SIMD3<Float>] = (0..<12).map { SIMD3(Float($0) / 11, 0, 0) }
@@ -208,16 +209,46 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         #expect(canvas[16, 16] == nil)
     }
 
-    @Test func aSweepLightsOnlyItsArc() {
+    @Test func aSweepLightsOnlyItsArcs() {
         var bands = [Float](repeating: 0, count: 16)
         bands[10] = 0.8
         var d = drawing(.radial)
         d.sweepFrom = 0
         d.sweepTo = 0.3
         let canvas = drawAudio(frame([], bands: bands), d, size: 32)
-        #expect(canvas[26, 16] != nil) // angle 0: to the right
-        #expect(canvas[5, 16] == nil && canvas[16, 5] == nil)
-        #expect(canvas.litCount < 8)
+        #expect(canvas[26, 16] != nil) // the left channel's arm at angle 0: to the right
+        #expect(canvas[5, 16] != nil) // the right channel's, half a turn on
+        #expect(canvas[16, 5] == nil && canvas[16, 26] == nil)
+        #expect(canvas.litCount < 16)
+    }
+
+    @Test func aSweepsArmsDrawEachChannel() {
+        var left = [Float](repeating: 0, count: 16), right = left
+        left[4] = 0.8
+        right[12] = 0.8
+        var d = drawing(.radial)
+        d.sweepFrom = 0
+        d.sweepTo = 0.3
+        let canvas = drawAudio(frame([], bands: left, rightBands: right), d, size: 32)
+        // Band 4 at radius 4.5 on the left channel's arm; band 12 at radius 12.5 on the right's.
+        #expect(canvas[20, 16] != nil && canvas[3, 16] != nil)
+        #expect(canvas[12, 16] == nil && canvas[28, 16] == nil)
+    }
+
+    @Test func unsweptChannelsTakeHalfTheCircleEach() {
+        var left = [Float](repeating: 0, count: 16), right = left
+        left[4] = 0.8
+        right[12] = 0.8
+        let canvas = drawAudio(frame([], bands: left, rightBands: right), drawing(.radial), size: 32)
+        // The left channel on the left half, the right on the right.
+        #expect(canvas[11, 16] != nil && canvas[3, 16] == nil)
+        #expect(canvas[28, 16] != nil && canvas[20, 16] == nil)
+        // Range is measured against the louder channel: a quiet channel stays dark.
+        right[12] = 0.3
+        var d = drawing(.radial)
+        d.range = 0.25
+        let quiet = drawAudio(frame([], bands: left, rightBands: right), d, size: 32)
+        #expect(quiet[11, 16] != nil && quiet[28, 16] == nil)
     }
 }
 
@@ -299,13 +330,16 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         let drawn = processor.process(sine(1000), sampleRate: 48_000, dt: 0.25, c)
         let alpha = { (u: AudioUpdate, x: Int, y: Int) in u.texels![(y * 16 + x) * 4 + 3] }
         let x = try #require((8..<16).first { alpha(drawn, $0, 8) == 255 })
-        // A quarter turn later, silent, it's still there, dimmed by a quarter turn's fade.
+        // A quarter turn later, silent, it's still there, dimmed by half of the half turn's fade.
         var later = drawn
         for _ in 0..<4 { later = processor.process(silence, sampleRate: 48_000, dt: 0.25, c) }
-        let expected = 255 * pow(AudioProcessor.sweepFade, 1.0 / 4)
+        let expected = 255 * pow(AudioProcessor.sweepFade, 1.0 / 2)
         #expect(abs(Double(alpha(later, x, 8)) - expected) < 4)
-        // Once the sweep comes round again, it's cleared.
-        for _ in 0..<12 { later = processor.process(silence, sampleRate: 48_000, dt: 0.25, c) }
+        // Half a turn on, the other arm comes round and draws over it, the bands still falling from the tone.
+        for _ in 0..<4 { later = processor.process(silence, sampleRate: 48_000, dt: 0.25, c) }
+        #expect(alpha(later, x, 8) == 255)
+        // By the next half turn they've fallen under the threshold, so the arm that comes round clears it.
+        for _ in 0..<8 { later = processor.process(silence, sampleRate: 48_000, dt: 0.25, c) }
         #expect(alpha(later, x, 8) == 0)
     }
 
@@ -330,6 +364,15 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
         #expect(inner > 0 && ratio > 0.6 && ratio < 1.6, "inner \(inner), outer \(outer), ratio \(ratio)")
     }
 
+    @Test func radialDrawsEachChannelOnItsOwnHalf() throws {
+        let processor = AudioProcessor(seed: 1)
+        let stereo = StereoSamples(left: sine(1000, amplitude: 0.8), right: [Float](repeating: 0, count: 4096))
+        let update = processor.process(stereo, sampleRate: 48_000, dt: 1 / 30, config(.radial))
+        let alpha = { (x: Int, y: Int) in update.texels![(y * 16 + x) * 4 + 3] }
+        #expect((0..<8).contains { alpha($0, 8) == 255 })
+        #expect(!(8..<16).contains { alpha($0, 8) == 255 })
+    }
+
     @Test func theRadialSweepTurnsWithTime() {
         var c = config(.radial)
         c.sweepBPM = 60
@@ -345,13 +388,13 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
     @Test func latestWrapsAround() {
         var ring = SampleRing(capacity: 4)
         ring.append([1, 2, 3, 4, 5, 6] as [Float])
-        #expect(ring.latest(4) == [3, 4, 5, 6])
-        #expect(ring.latest(2) == [5, 6])
-        #expect(ring.latest(10) == [3, 4, 5, 6])
+        #expect(ring.latest(4) == StereoSamples(mono: [3, 4, 5, 6]))
+        #expect(ring.latest(2) == StereoSamples(mono: [5, 6]))
+        #expect(ring.latest(10) == StereoSamples(mono: [3, 4, 5, 6]))
     }
 
-    /// Mixes `buffers` (each a list of interleaved frames with `channels` channels) through a ring.
-    func mono(_ buffers: [(channels: Int, samples: [Float])]) -> [Float] {
+    /// Passes `buffers` (each a list of interleaved frames with `channels` channels) through a ring.
+    func channels(_ buffers: [(channels: Int, samples: [Float])]) -> StereoSamples {
         let list = AudioBufferList.allocate(maximumBuffers: buffers.count)
         let data = buffers.map { b in
             let p = UnsafeMutablePointer<Float>.allocate(capacity: b.samples.count)
@@ -366,16 +409,27 @@ let rainbow4: [SIMD3<Float>] = [SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1), 
             list[i] = AudioBuffer(mNumberChannels: UInt32(b.channels), mDataByteSize: UInt32(b.samples.count * 4), mData: data[i])
         }
         var ring = SampleRing(capacity: 3)
-        ring.appendMono(list)
+        ring.appendChannels(list)
         return ring.latest(3)
     }
 
-    @Test func interleavedChannelsMixToMono() {
-        #expect(mono([(2, [1, 0, 0, 1, 0.5, -0.5])]) == [0.5, 0.5, 0])
+    @Test func interleavedChannelsStaySeparate() {
+        #expect(channels([(2, [1, 0, 0, 1, 0.5, -0.5])]) == StereoSamples(left: [1, 0, 0.5], right: [0, 1, -0.5]))
     }
 
-    @Test func separateChannelsMixToMono() {
-        #expect(mono([(1, [1, 0, 0.5]), (1, [0, 1, -0.5])]) == [0.5, 0.5, 0])
+    @Test func separateChannelsStaySeparate() {
+        #expect(channels([(1, [1, 0, 0.5]), (1, [0, 1, -0.5])]) == StereoSamples(left: [1, 0, 0.5], right: [0, 1, -0.5]))
+    }
+
+    @Test func oneChannelGoesToBoth() {
+        #expect(channels([(1, [1, 0, 0.5])]) == StereoSamples(mono: [1, 0, 0.5]))
+    }
+
+    @Test func moreChannelsAverageEvenLeftAndOddRight() {
+        #expect(channels([(4, [1, 0, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1])])
+                == StereoSamples(left: [0.5, 0.5, 1], right: [0.5, 0.5, 1]))
+        #expect(channels([(3, [1, 0, 0, 0, 1, 1, 1, 1, 0])])
+                == StereoSamples(left: [0.5, 0.5, 0.5], right: [0, 1, 1]))
     }
 
     @Test func aSavedSweepSpeedBecomesATempo() throws {

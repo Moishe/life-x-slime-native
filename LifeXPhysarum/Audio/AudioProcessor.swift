@@ -61,8 +61,9 @@ nonisolated final class AudioProcessor {
     static let quietestPeak: Float = 0.01
     /// Beats in one turn of the radial sweep: a bar of 4/4, so the sweep comes round once a bar.
     static let beatsPerTurn = 4.0
-    /// How much of its brightness the radial sweep's drawing keeps after a turn:
-    /// it stays until the sweep comes round again, dimming as it ages.
+    /// How much of its brightness the radial sweep's drawing keeps after half a turn:
+    /// it stays until the other channel's arm, half a turn behind, comes round over
+    /// it, dimming as it ages.
     static let sweepFade = 0.3
 
     private let analyzer = SpectrumAnalyzer()
@@ -88,8 +89,12 @@ nonisolated final class AudioProcessor {
     private static let angleBuckets = 1024
     /// Each cell's distance from the center, in cells.
     private var cellRadii: [Double] = []
+    /// Band levels and notes as last drawn: the mix's, or for radial the left channel's.
     private var bands: [Float] = []
     private var bandNotes: [Int] = []
+    /// Radial: the right channel's.
+    private var rightBands: [Float] = []
+    private var rightBandNotes: [Int] = []
     private var peak: Float = 0
     private var angle = 0.0
 
@@ -97,9 +102,16 @@ nonisolated final class AudioProcessor {
         rng = mulberry32(seed)
     }
 
-    /// Processes the newest `samples` (mono), `dt` seconds after the last call;
-    /// the last `fresh` of them arrived since then. Nil `fresh` means all of them.
+    /// Processes mono `samples`, as if both channels carried them.
     func process(_ samples: [Float], fresh: Int? = nil, sampleRate: Double, dt: Double, _ config: AudioConfig) -> AudioUpdate {
+        process(StereoSamples(mono: samples), fresh: fresh, sampleRate: sampleRate, dt: dt, config)
+    }
+
+    /// Processes the newest `stereo` samples, `dt` seconds after the last call;
+    /// the last `fresh` of them arrived since then. Nil `fresh` means all of them.
+    /// Radial draws each channel on its own; everything else draws the mix.
+    func process(_ stereo: StereoSamples, fresh: Int? = nil, sampleRate: Double, dt: Double, _ config: AudioConfig) -> AudioUpdate {
+        let samples = stereo.mono
         let tempo = tempoDetector.add(Array(samples.suffix(fresh ?? samples.count)), sampleRate: sampleRate)
         let size = config.gridSize, n = size * size
         if size != self.size {
@@ -122,21 +134,26 @@ nonisolated final class AudioProcessor {
             bands = []
         }
 
-        let inputLevel = samples.suffix(SpectrumAnalyzer.fftSize).map(abs).max() ?? 0
+        let recent = stereo.suffix(SpectrumAnalyzer.fftSize)
+        let inputLevel = (recent.left + recent.right).map(abs).max() ?? 0
         peak = max(inputLevel, peak * Self.peakRelease)
         var gain = pow(10, config.gainDB / 20)
         // Automatic gain brings the recent peak to 0.9, just inside the field.
         if config.autoGain { gain *= 0.9 / max(peak, Self.quietestPeak) }
         let scaled = samples.map { $0 * gain }
 
-        // Radial: one band per cell of radius.
-        let bandCount = config.style == .radial ? max(1, Int(Double(size) / 2 * config.radiusScale)) : size
         let amplitudes = analyzer.amplitudes(scaled)
-        let (fresh, freshNotes) = analyzer.bands(amplitudes: amplitudes, count: bandCount, sampleRate: sampleRate)
-        if bands.count != bandCount { bands = fresh; bandNotes = freshNotes }
-        // A band holding its level as it falls keeps its note too, until something louder sounds in it.
-        for b in 0..<bandCount where fresh[b] >= bands[b] * Self.bandRelease { bandNotes[b] = freshNotes[b] }
-        bands = zip(fresh, bands).map { max($0, $1 * Self.bandRelease) }
+        if config.style == .radial {
+            // One band per cell of radius, for each channel.
+            let bandCount = max(1, Int(Double(size) / 2 * config.radiusScale))
+            func channelBands(_ channel: [Float]) -> (levels: [Float], notes: [Int]) {
+                analyzer.bands(amplitudes: analyzer.amplitudes(channel.map { $0 * gain }), count: bandCount, sampleRate: sampleRate)
+            }
+            Self.hold(channelBands(recent.left), &bands, &bandNotes)
+            Self.hold(channelBands(recent.right), &rightBands, &rightBandNotes)
+        } else {
+            Self.hold(analyzer.bands(amplitudes: amplitudes, count: size, sampleRate: sampleRate), &bands, &bandNotes)
+        }
 
         let lastAngle = angle
         let turnsPerSecond = config.sweepBPM / 60 / Self.beatsPerTurn
@@ -147,6 +164,8 @@ nonisolated final class AudioProcessor {
         let traceLength = max(2, Int(sampleRate * 0.025))
         let frame = AudioFrame(samples: Array(scaled.suffix(traceLength * 2)), traceLength: traceLength,
                                bands: bands, bandNotes: bandNotes,
+                               rightBands: config.style == .radial ? rightBands : nil,
+                               rightBandNotes: config.style == .radial ? rightBandNotes : nil,
                                note: dominantNote(analyzer.chroma(amplitudes: amplitudes, sampleRate: sampleRate)))
         // The sweep is drawn from where it was to where it is, so fast sweeps leave no gaps.
         let sweepTo = angle < lastAngle ? angle + 2 * .pi : angle
@@ -155,11 +174,12 @@ nonisolated final class AudioProcessor {
                                    sweepFrom: lastAngle, sweepTo: turnsPerSecond > 0 ? sweepTo : lastAngle)
         let canvas = drawAudio(frame, drawing, size: size)
 
-        // A sweep keeps its drawing until it comes round, clearing the wedge it passes over;
-        // everything else (alpha: the composite blends the color in by it) leaves a short afterglow.
+        // A sweep's two arms keep their drawing until one comes round over it, clearing the
+        // wedges they pass over; everything else (alpha: the composite blends the color in by
+        // it) leaves a short afterglow.
         let sweeping = config.style == .radial && turnsPerSecond > 0
         let swept = sweepTo - lastAngle
-        let fade = sweeping ? Float(pow(Self.sweepFade, swept / (2 * .pi))) : Self.afterglow
+        let fade = sweeping ? Float(pow(Self.sweepFade, swept / .pi)) : Self.afterglow
         var births: [SeedCell] = [], deaths: [SeedCell] = []
         let nowLit = canvas.litIndices.sorted()
         for i in nowLit { births.append(SeedCell(x: i % size, y: i / size, color: canvas[index: i]!)) }
@@ -190,7 +210,7 @@ nonisolated final class AudioProcessor {
         return update
     }
 
-    /// Fades the drawing (clearing the wedge a sweep passed over, from `sweptFrom`),
+    /// Fades the drawing (clearing the wedges a sweep's arms passed over, from `sweptFrom` and opposite),
     /// lights `births` in it, and returns it as texels. At the largest grid that's a
     /// million cells a frame, so the per-cell work runs in Accelerate, or visits only
     /// the cells that matter, to stay quick even unoptimized.
@@ -202,7 +222,11 @@ nonisolated final class AudioProcessor {
         glow.withUnsafeMutableBufferPointer { glow in
             var fade = fade
             vDSP_vsmul(glow.baseAddress! + 3, 4, &fade, glow.baseAddress! + 3, 4, vDSP_Length(n))
-            if let sweptFrom { forEachCell(sweptFrom: sweptFrom, by: swept) { glow[$0 * 4 + 3] = 0 } }
+            if let sweptFrom {
+                for arm in [sweptFrom, sweptFrom + .pi] {
+                    forEachCell(sweptFrom: arm.truncatingRemainder(dividingBy: 2 * .pi), by: swept) { glow[$0 * 4 + 3] = 0 }
+                }
+            }
         }
         for cell in births {
             let g = (cell.y * size + cell.x) * 4
@@ -214,6 +238,18 @@ nonisolated final class AudioProcessor {
         vDSP_vsmsa(texelScratch, 1, &scale, &half, &texelScratch, 1, vDSP_Length(n * 4))
         vDSP_vfixu8(texelScratch, 1, &texels, 1, vDSP_Length(n * 4)) // truncates, so with the half added it rounds
         return texels
+    }
+
+    /// Smooths `fresh` band levels into `levels`, each falling at most to `bandRelease`
+    /// of its last level a frame. A band holding its level as it falls keeps its note
+    /// too, until something louder sounds in it.
+    private static func hold(_ fresh: (levels: [Float], notes: [Int]), _ levels: inout [Float], _ notes: inout [Int]) {
+        guard levels.count == fresh.levels.count else {
+            (levels, notes) = fresh
+            return
+        }
+        for b in levels.indices where fresh.levels[b] >= levels[b] * bandRelease { notes[b] = fresh.notes[b] }
+        levels = zip(fresh.levels, levels).map { max($0, $1 * bandRelease) }
     }
 
     /// Calls `body` with each cell whose angle lies in [from, from + by), turning past 2π.

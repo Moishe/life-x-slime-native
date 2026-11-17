@@ -39,6 +39,7 @@ struct ContentView: View {
 
     private var subtitle: String {
         let state = model.isRecording ? "Recording" : model.settings.playing ? "Running" : "Paused"
+        if model.isStartingAudio { return "Starting Audio…" }
         if model.source == .camera { return "\(state) · \(model.activeCamera?.name ?? "Camera")" }
         if model.source == .audio { return "\(state) · \(model.activeAudioInput?.name ?? "Audio")" }
         let tool = model.tool.pattern.map { "\($0.name) \(model.quarterTurns * 90)°" } ?? "Paint Cells"

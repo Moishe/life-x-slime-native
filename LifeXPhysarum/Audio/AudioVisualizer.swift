@@ -8,7 +8,8 @@ nonisolated enum AudioStyle: String, Codable, CaseIterable, Sendable {
     case ring
     /// A curve of loudness by pitch: low notes on the left, louder higher up.
     case spectrum
-    /// Pitch as distance from the center, swept around like radar (or whole rings, unswept).
+    /// Pitch as distance from the center, swept around like radar (or whole rings,
+    /// unswept), the left and right channels half a turn apart.
     case radial
 }
 
@@ -38,10 +39,15 @@ nonisolated struct AudioFrame {
     /// last `traceLength`; the samples before give room to find a trigger.
     var samples: [Float]
     var traceLength: Int
-    /// Band levels (0–1), low to high, one per column (spectrum) or per unit of radius (radial).
+    /// Band levels (0–1), low to high, one per column (spectrum) or per unit of
+    /// radius (radial). Radial: the left channel's.
     var bands: [Float]
     /// Each band's note (0 = C … 11 = B): the one sounding loudest in it.
     var bandNotes: [Int]
+    /// Radial: the right channel's band levels and notes, drawn half a turn from
+    /// the left's. Nil draws `bands` for both.
+    var rightBands: [Float]? = nil
+    var rightBandNotes: [Int]? = nil
     /// The loudest note in the sound, nil when there's none.
     var note: Int?
 }
@@ -60,7 +66,9 @@ nonisolated struct AudioDrawing {
     var distance = AudioDistance.pitch
     /// Radial: the outermost radius, as a fraction of half the grid.
     var radiusScale = 1.0
-    /// Radial: the sweep's angle last frame and now, in radians. Equal means whole rings.
+    /// Radial: the sweep's angle last frame and now, in radians: the left channel's
+    /// arm, with the right's half a turn on. Equal means whole rings, the left
+    /// channel on the left half and the right on the right.
     var sweepFrom: Double = 0
     var sweepTo: Double = 0
 }
@@ -201,25 +209,28 @@ private nonisolated func drawSpectrum(_ frame: AudioFrame, _ drawing: AudioDrawi
 }
 
 private nonisolated func drawRadial(_ frame: AudioFrame, _ drawing: AudioDrawing, _ canvas: inout AudioCanvas) {
-    let bands = frame.bands
-    guard let loudest = bands.max() else { return }
+    let right = (bands: frame.rightBands ?? frame.bands, notes: frame.rightBandNotes ?? frame.bandNotes)
+    guard let loudest = (frame.bands + right.bands).max() else { return }
     let center = SIMD2(Double(canvas.size) / 2, Double(canvas.size) / 2)
     let maxRadius = Double(canvas.size) / 2 * drawing.radiusScale
     let whole = drawing.sweepFrom == drawing.sweepTo
-    let from = whole ? 0 : drawing.sweepFrom
-    let span = whole ? 2 * Double.pi : drawing.sweepTo - drawing.sweepFrom
-    for (b, level) in bands.enumerated() where bandLights(level, loudest: loudest, drawing) {
-        let r = switch drawing.distance {
-        case .pitch: (Double(b) + 0.5) * maxRadius / Double(bands.count)
-        case .loudness: Double(level) * (maxRadius - 0.5)
-        }
-        let color = drawing.colors == .pitch ? noteColor(drawing.palette, frame.bandNotes[b]) : paletteColor(drawing.palette, level)
-        // About one point per cell along the arc.
-        let steps = max(1, Int(ceil(abs(span) * r)))
-        for i in 0...steps {
-            let angle = from + span * Double(i) / Double(steps)
-            let p = center + SIMD2(cos(angle), -sin(angle)) * r
-            canvas.plot(Int(p.x.rounded(.down)), Int(p.y.rounded(.down)), color)
+    // Whole rings: each channel takes half the circle, the left from 12 o'clock round to 6, the right from 6 to 12.
+    let leftFrom = whole ? Double.pi / 2 : drawing.sweepFrom
+    let span = whole ? Double.pi : drawing.sweepTo - drawing.sweepFrom
+    for (bands, notes, from) in [(frame.bands, frame.bandNotes, leftFrom), (right.bands, right.notes, leftFrom + .pi)] {
+        for (b, level) in bands.enumerated() where bandLights(level, loudest: loudest, drawing) {
+            let r = switch drawing.distance {
+            case .pitch: (Double(b) + 0.5) * maxRadius / Double(bands.count)
+            case .loudness: Double(level) * (maxRadius - 0.5)
+            }
+            let color = drawing.colors == .pitch ? noteColor(drawing.palette, notes[b]) : paletteColor(drawing.palette, level)
+            // About one point per cell along the arc.
+            let steps = max(1, Int(ceil(abs(span) * r)))
+            for i in 0...steps {
+                let angle = from + span * Double(i) / Double(steps)
+                let p = center + SIMD2(cos(angle), -sin(angle)) * r
+                canvas.plot(Int(p.x.rounded(.down)), Int(p.y.rounded(.down)), color)
+            }
         }
     }
 }

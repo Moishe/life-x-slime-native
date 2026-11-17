@@ -50,8 +50,10 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   dark leave food. Styles: **Waveform** (an oscilloscope trace), **Ring** (the trace around
   a circle), **Spectrum** (loudness by pitch, low notes on the left) and **Radial** (pitch as
   distance from the center, or with Distance set to Loudness, loudness, swept around like radar
-  once a bar at the Sweep Tempo, each turn drawn over the last; 0 BPM
-  draws whole rings, and Auto Tempo listens for the beat and sets the tempo itself). The Input
+  once a bar at the Sweep Tempo, with the left and right channels on two arms half a turn
+  apart, each drawn over the other's last pass; 0 BPM draws whole rings, the left channel on
+  the left half and the right on the right, and Auto Tempo listens for the beat and sets the
+  tempo itself). Mono inputs draw the same on both. The Input
   menu lists input devices (microphones, interfaces, virtual devices such as
   [BlackHole](https://github.com/ExistentialAudio/BlackHole) or Loopback), **System Audio**
   (everything the Mac plays) and apps that have played sound, such as Music or Live. System
@@ -59,7 +61,7 @@ The project uses Xcode 26 synchronized folders: new files under `LifeXPhysarum/`
   keeps playing; the first time, macOS asks for System Audio Recording permission. Auto
   Gain, Gain and Threshold set how much sound it takes to light cells, and for Spectrum and
   Radial, Range lights only the bands within that many decibels of the loudest. Debug builds can
-  seed from a generated tune: `LXP_DEBUG_SNAPSHOT=audio=radial`.
+  seed from a generated tune, its bass panned left and chords right: `LXP_DEBUG_SNAPSHOT=audio=radial`.
 - **Status bar:** frame rate, Physarum steps per second, live actors, organisms, and actors
   added per second by Life births and by reproduction.
 

@@ -193,7 +193,7 @@ struct InspectorView: View {
                 Text("Spectrum").tag(AudioStyle.spectrum)
                 Text("Radial").tag(AudioStyle.radial)
             }
-            .help("Waveform: an oscilloscope trace across the field. Ring: the trace wrapped around a circle. Spectrum: loudness by pitch, low notes on the left. Radial: pitch as distance from the center, swept around like radar, each turn drawn over the last. Every lit cell releases actors; cells that go dark leave food")
+            .help("Waveform: an oscilloscope trace across the field. Ring: the trace wrapped around a circle. Spectrum: loudness by pitch, low notes on the left. Radial: pitch as distance from the center, swept around like radar, the left and right channels on arms half a turn apart. Every lit cell releases actors; cells that go dark leave food")
             Picker("Colors", selection: $model.audioSettings.colors) {
                 Text("Pitch").tag(AudioColors.pitch)
                 Text("Loudness").tag(AudioColors.loudness)
@@ -221,7 +221,7 @@ struct InspectorView: View {
                 .help("What sets how far from the center each band is drawn. Pitch: low notes in the middle, high notes at the edge. Loudness: quiet in the middle, loud at the edge")
                 ParameterSlider(title: "Sweep Tempo", value: $model.audioSettings.sweepBPM, range: 0...240, step: 0.1,
                                 defaultValue: AudioSettings().sweepBPM, unit: "BPM",
-                                help: "The radial sweep goes around once every 4 beats at this tempo, once a bar (0 = whole rings, every band lit all the way around)")
+                                help: "The radial sweep goes around once every 4 beats at this tempo, once a bar (0 = whole rings, the left channel on the left half and the right on the right)")
                     .disabled(model.audioSettings.autoTempo)
                 Toggle(isOn: $model.audioSettings.autoTempo) {
                     HStack {
